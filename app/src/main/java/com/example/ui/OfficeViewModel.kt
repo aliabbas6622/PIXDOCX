@@ -116,6 +116,14 @@ class OfficeViewModel(application: Application) : AndroidViewModel(application) 
     private val _isPresenting = MutableStateFlow(false)
     val isPresenting: StateFlow<Boolean> = _isPresenting.asStateFlow()
 
+    // Viewer mode: true = read-only view, false = full editing screen
+    private val _viewMode = MutableStateFlow(true)
+    val viewMode: StateFlow<Boolean> = _viewMode.asStateFlow()
+
+    fun setViewMode(viewMode: Boolean) {
+        _viewMode.value = viewMode
+    }
+
     private var autoSaveJob: Job? = null
 
     fun selectTab(tab: HubTab) {
@@ -132,6 +140,7 @@ class OfficeViewModel(application: Application) : AndroidViewModel(application) 
 
     fun openDocument(document: OfficeDocument) {
         _currentDocument.value = document
+        _viewMode.value = true
         undoStack.clear()
         redoStack.clear()
         _canUndo.value = false
@@ -144,6 +153,7 @@ class OfficeViewModel(application: Application) : AndroidViewModel(application) 
         saveCurrentDocumentNow()
         _currentDocument.value = null
         _isPresenting.value = false
+        _viewMode.value = true
     }
 
     fun togglePresentationMode(presenting: Boolean) {
@@ -330,7 +340,8 @@ class OfficeViewModel(application: Application) : AndroidViewModel(application) 
                 },
                 wordCount = if (result.type == DocumentType.DOC) countWords(result.content) else 0,
                 sheetRows = if (result.type == DocumentType.XLS) 20 else 0,
-                sizeLabel = result.sizeLabel
+                sizeLabel = result.sizeLabel,
+                localFilePath = result.savedFilePath
             )
             val newId = repository.insert(doc)
             repository.getDocumentByIdDirect(newId)?.let { openDocument(it) }

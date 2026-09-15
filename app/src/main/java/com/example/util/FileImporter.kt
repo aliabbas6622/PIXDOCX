@@ -10,6 +10,7 @@ import com.example.data.model.SlideLayout
 import com.example.data.model.SpreadsheetGrid
 import org.xmlpull.v1.XmlPullParser
 import org.xmlpull.v1.XmlPullParserFactory
+import java.io.File
 import java.io.InputStream
 import java.util.zip.ZipEntry
 import java.util.zip.ZipInputStream
@@ -32,7 +33,9 @@ object FileImporter {
         val title: String,
         val type: DocumentType,
         val content: String,
-        val sizeLabel: String
+        val sizeLabel: String,
+        /** Path of the preserved original file in app storage (PDFs, etc). */
+        val savedFilePath: String = ""
     )
 
     private const val MAX_FILE_BYTES = 16 * 1024 * 1024 // 16 MB safety cap
@@ -84,6 +87,10 @@ object FileImporter {
         val ext = fileName.substringAfterLast('.', "").lowercase()
         val baseName = fileName.substringBeforeLast('.')
 
+        // Preserve the original bytes so format-native viewers (PDF renderer)
+        // can re-read the real file later, not just the extracted text.
+        val savedPath = try { saveToImportsDir(context, uri, fileName) } catch (_: Exception) { "" }
+
         val content: String = try {
             context.contentResolver.openInputStream(uri)?.use { stream ->
                 when (ext) {
@@ -110,8 +117,21 @@ object FileImporter {
             title = baseName.ifBlank { fileName },
             type = detectType(fileName),
             content = content,
-            sizeLabel = sizeLabel(sizeBytes)
+            sizeLabel = sizeLabel(sizeBytes),
+            savedFilePath = savedPath
         )
+    }
+
+    /** Copies the source file into app-private storage so viewers can re-open it. */
+    private fun saveToImportsDir(context: Context, uri: Uri, fileName: String): String {
+        val dir = File(context.filesDir, "imports").apply { mkdirs() }
+        // Prefix with a timestamp so same-named files never overwrite each other
+        val safeName = "${System.currentTimeMillis()}_" + fileName.replace(Regex("[^A-Za-z0-9._-]"), "_")
+        val target = File(dir, safeName)
+        context.contentResolver.openInputStream(uri)?.use { input ->
+            target.outputStream().use { output -> input.copyTo(output) }
+        }
+        return target.absolutePath
     }
 
     // ------------------------------------------------------------------
@@ -200,27 +220,85 @@ object FileImporter {
     // DOCX (word/document.xml)
     // ------------------------------------------------------------------
 
+    /**
+     * DOCX -> markdown so the DocViewer renders real formatting (headings,
+     * bold/italic runs, list bullets) instead of losing it all.
+     */
     private fun parseDocx(documentXml: String): String {
         val sb = StringBuilder()
         val parser = newParser(documentXml)
-        var inParagraph = false
+        var paragraphDepth = 0
+        var runDepth = 0
+        var styleVal = ""
+        var numPr = false
+        var runBold = false
+        var runItalic = false
+        var runUnderline = false
+        var runText = ""
+        // Marks whether the current paragraph still needs its markdown prefix
+        // (headings / list bullets) prepended before its first run text.
+        var paragraphPrefixPending = false
+
+        fun flushRun() {
+            if (runText.isNotEmpty()) {
+                if (paragraphPrefixPending) {
+                    val prefix = when {
+                        numPr -> "- "
+                        styleVal.startsWith("Heading") ->
+                            "#".repeat(styleVal.takeLast(1).toIntOrNull() ?: 1) + " "
+                        styleVal == "Title" -> "# "
+                        else -> ""
+                    }
+                    sb.append(prefix)
+                    paragraphPrefixPending = false
+                }
+                var t = runText
+                if (runBold) t = "**$t**"
+                if (runItalic) t = "*$t*"
+                if (runUnderline) t = "<u>$t</u>"
+                sb.append(t)
+                runText = ""
+            }
+            runBold = false; runItalic = false; runUnderline = false
+        }
+
         while (parser.eventType != XmlPullParser.END_DOCUMENT) {
             when (parser.eventType) {
                 XmlPullParser.START_TAG -> when (parser.name) {
-                    "p" -> inParagraph = true
+                    "p" -> {
+                        paragraphDepth++
+                        styleVal = parser.getAttributeValue(null, "w:pStyle") ?: ""
+                        numPr = false
+                        paragraphPrefixPending = true
+                    }
+                    "pStyle" -> styleVal = parser.getAttributeValue(null, "w:val") ?: styleVal
+                    "numPr" -> numPr = true
+                    "r" -> if (paragraphDepth > 0) {
+                        runDepth++
+                        flushRun()
+                    }
+                    "b" -> if (runDepth > 0) runBold = true
+                    "i" -> if (runDepth > 0) runItalic = true
+                    "u" -> if (runDepth > 0) runUnderline = true
                     "br" -> sb.append('\n')
                     "tab" -> sb.append('\t')
                 }
-                XmlPullParser.TEXT -> if (inParagraph && parser.name == "t") sb.append(parser.text)
+                XmlPullParser.TEXT -> if (runDepth > 0) runText += parser.text
                 XmlPullParser.END_TAG -> when (parser.name) {
+                    "r" -> {
+                        flushRun()
+                        if (runDepth > 0) runDepth--
+                    }
                     "p" -> {
+                        flushRun()
+                        if (paragraphDepth > 0) paragraphDepth--
                         sb.append('\n')
-                        inParagraph = false
                     }
                 }
             }
             parser.next()
         }
+        flushRun()
         val text = sb.toString().replace(Regex("\n{3,}"), "\n\n").trim()
         return text.ifBlank { "⚠ Empty document or unsupported docx structure." }
     }

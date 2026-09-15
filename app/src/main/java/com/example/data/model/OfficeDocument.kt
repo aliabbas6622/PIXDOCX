@@ -41,5 +41,7 @@ data class OfficeDocument(
     val wordCount: Int = 0,
     val sheetRows: Int = 0,
     val slideCount: Int = 0,
-    val sizeLabel: String = "4 KB"
+    val sizeLabel: String = "4 KB",
+    /** Path to the preserved original file (PDFs need it for real rendering). */
+    val localFilePath: String = ""
 )

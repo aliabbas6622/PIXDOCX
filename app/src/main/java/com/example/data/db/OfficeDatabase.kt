@@ -17,7 +17,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 
-@Database(entities = [OfficeDocument::class], version = 2, exportSchema = false)
+@Database(entities = [OfficeDocument::class], version = 3, exportSchema = false)
 abstract class OfficeDatabase : RoomDatabase() {
     abstract fun officeDocumentDao(): OfficeDocumentDao
 
@@ -41,6 +41,16 @@ abstract class OfficeDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * Migration 2 -> 3: store the path of the preserved original file so
+         * PDFs can be re-rendered with PdfRenderer at open time.
+         */
+        private val MIGRATION_2_3 = object : androidx.room.migration.Migration(2, 3) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE office_documents ADD COLUMN localFilePath TEXT NOT NULL DEFAULT ''")
+            }
+        }
+
         fun getDatabase(context: Context, scope: CoroutineScope): OfficeDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
@@ -55,7 +65,7 @@ abstract class OfficeDatabase : RoomDatabase() {
                 // serialized thread for transactions (write ordering).
                 .setQueryExecutor(Executors.newFixedThreadPool(2))
                 .setTransactionExecutor(Executors.newSingleThreadExecutor())
-                .addMigrations(MIGRATION_1_2)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
                 // Safety net for version downgrades (e.g. sideloading an older
                 // APK): recreate the DB instead of crashing. Upgrades keep the
                 // proper MIGRATION_1_2 path and preserve user data.

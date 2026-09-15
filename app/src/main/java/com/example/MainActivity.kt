@@ -20,6 +20,8 @@ import com.example.ui.calc.SpreadsheetEditorScreen
 import com.example.ui.home.HomeScreen
 import com.example.ui.slides.PresentationEditorScreen
 import com.example.ui.theme.MyApplicationTheme
+import com.example.ui.viewer.DocViewerScreen
+import com.example.ui.viewer.PdfViewerScreen
 import com.example.ui.writer.WordEditorScreen
 
 class MainActivity : ComponentActivity() {
@@ -54,14 +56,21 @@ fun OfficeApp(viewModel: OfficeViewModel = viewModel()) {
   }
 
   val activeDoc = currentDoc
+  val viewMode by viewModel.viewMode.collectAsState()
   if (activeDoc == null) {
     HomeScreen(viewModel = viewModel)
   } else {
     when (activeDoc.type) {
-      DocumentType.DOC -> WordEditorScreen(document = activeDoc, viewModel = viewModel)
+      DocumentType.DOC -> if (viewMode) {
+        DocViewerScreen(document = activeDoc, viewModel = viewModel)
+      } else {
+        WordEditorScreen(document = activeDoc, viewModel = viewModel)
+      }
       DocumentType.XLS -> SpreadsheetEditorScreen(document = activeDoc, viewModel = viewModel)
       DocumentType.PPT -> PresentationEditorScreen(document = activeDoc, viewModel = viewModel)
-      DocumentType.PDF -> WordEditorScreen(document = activeDoc, viewModel = viewModel)
+      // Real PDF rendering with PdfRenderer instead of dumping text into the
+      // word editor (which made PDFs look broken).
+      DocumentType.PDF -> PdfViewerScreen(document = activeDoc, viewModel = viewModel)
     }
   }
 }
