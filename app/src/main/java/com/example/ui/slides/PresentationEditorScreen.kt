@@ -36,11 +36,11 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
+import androidx.compose.material.icons.automirrored.filled.Notes
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Notes
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Slideshow
@@ -406,7 +406,7 @@ fun PresentationEditorScreen(
                                     .padding(vertical = 4.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Icon(Icons.Default.Notes, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
+                                Icon(Icons.AutoMirrored.Filled.Notes, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
                                 Spacer(modifier = Modifier.width(6.dp))
                                 Text(
                                     text = if (showNotesDrawer) "Hide Presenter Notes" else "Edit Presenter Notes",
@@ -771,7 +771,7 @@ private fun PresentationModeView(
                         onClick = { showNotesOverlay = !showNotesOverlay },
                         modifier = Modifier.background(Color.Black.copy(alpha = 0.65f), CircleShape)
                     ) {
-                        Icon(Icons.Default.Notes, contentDescription = "Toggle Notes", tint = Color.White)
+                        Icon(Icons.AutoMirrored.Filled.Notes, contentDescription = "Toggle Notes", tint = Color.White)
                     }
                 }
 

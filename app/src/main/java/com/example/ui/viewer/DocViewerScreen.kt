@@ -53,6 +53,8 @@ import com.example.ui.OfficeViewModel
 import com.example.ui.common.MarkdownText
 import com.example.ui.common.ExportDocumentDialog
 import com.example.ui.common.RenameDocumentDialog
+import com.example.ui.common.DeleteConfirmDialog
+import com.example.ui.common.ViewerOverflowMenu
 import com.example.ui.theme.Slate100
 import com.example.ui.theme.Slate500
 import com.example.ui.theme.Slate600
@@ -75,6 +77,7 @@ fun DocViewerScreen(
 ) {
     var showExportDialog by remember { mutableStateOf(false) }
     var showRenameDialog by remember { mutableStateOf(false) }
+    var showDeleteDialog by remember { mutableStateOf(false) }
 
     val isCode = remember(document.title, document.content) {
         looksLikeCode(document.title, document.content)
@@ -115,6 +118,13 @@ fun DocViewerScreen(
                 }
             },
             actions = {
+                // Overflow: Export/Share, Rename, Delete
+                ViewerOverflowMenu(
+                    document = document,
+                    onExport = { showExportDialog = true },
+                    onRename = { showRenameDialog = true },
+                    onDelete = { showDeleteDialog = true }
+                )
                 // Switch to the full editing screen
                 IconButton(
                     onClick = { viewModel.setViewMode(false) },
@@ -190,6 +200,17 @@ fun DocViewerScreen(
                 color = Slate500
             )
         }
+    }
+
+    if (showDeleteDialog) {
+        DeleteConfirmDialog(
+            title = document.title,
+            onDismiss = { showDeleteDialog = false },
+            onConfirm = {
+                showDeleteDialog = false
+                viewModel.deleteDocument(document)
+            }
+        )
     }
 
     if (showRenameDialog) {

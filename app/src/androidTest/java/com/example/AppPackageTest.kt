@@ -12,10 +12,10 @@ import org.junit.runner.RunWith
  * See [testing documentation](http://d.android.com/tools/testing).
  */
 @RunWith(AndroidJUnit4::class)
-class ExampleInstrumentedTest {
+class AppPackageTest {
+  /** Guards against a namespace/applicationId mismatch shipping to the store. */
   @Test
-  fun useAppContext() {
-    // Context of the app under test.
+  fun installedPackageMatchesBuildConfig() {
     val appContext = InstrumentationRegistry.getInstrumentation().targetContext
     assertEquals(BuildConfig.APPLICATION_ID, appContext.packageName)
   }

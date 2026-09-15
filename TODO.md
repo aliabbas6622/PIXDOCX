@@ -88,5 +88,38 @@ formatting. PDF is best-effort text. There is no proper read-only viewer.
 ## 6. Ideas / later (P2)
 - [ ] Search inside PDF viewer
 - [ ] Dark/light theme toggle in header
-- [ ] Export to PDF (PdfDocument API)
+- [x] Export to PDF (PdfDocument API) — done in `FileConverter`
 - [ ] Recent files section on home
+
+## 7. Repo & app hygiene — "would a professional ship this?" (done 2026-09-15)
+- [x] **No machine-specific paths in VCS**: removed the hard-coded
+      `org.gradle.java.home=C:/Program Files/Android/...` from `gradle.properties`
+      (it made the project unbuildable on any other machine/CI); documented the
+      user-level override in `README.md`
+- [x] **Committed Gradle wrapper scripts** (`gradlew`, `gradlew.bat`) — previously only
+      the wrapper jar was committed, so the project could not be built from a terminal
+- [x] **Dead dependencies pruned**: Firebase (AI/AppCheck/BOM), Retrofit, Moshi, OkHttp,
+      logging-interceptor and the secrets/google-services plugins were all shipped but
+      never referenced (the manifest has no INTERNET permission). Debug APK 23.1 MB → 17.2 MB
+- [x] **Template leftovers removed**: `Greeting()` + its screenshot test/baseline,
+      `ExampleUnitTest` (2+2), `Example*` test class names; placeholder theme
+      `Theme.MyApplication`/`MyApplicationTheme` → `Theme.PixDocx`/`PixDocxTheme`
+- [x] **Imports no longer fail silently**: duplicates returned early with no feedback and
+      exceptions escaped the view-model coroutine. Every picked file now yields an
+      `ImportOutcome`, budgets into one snackbar sentence (`ImportSummaryTest`), and batch
+      progress lives in the view model so it survives rotation
+- [x] `README.md` covering features, architecture, build (incl. the JDK 17–25 requirement)
+      and the test map; `metadata.json` no longer claims an unused Gemini capability
+- [x] **Release builds no longer require the private keystore**: `:app:assembleRelease`
+      hard-failed on a missing `my-upload-key.jks`; it now assembles an unsigned APK when no
+      keystore is configured (R8 + resource shrinking still run — release APK 1.78 MB)
+- [x] Fixed the library card meta line rendering `PDF • PDF • Sep 15` (found by dumping the
+      UI hierarchy on-device; PDFs have no editable metric, so they show type + date)
+- [x] Compiler warnings cleared (AutoMirrored icons, Room downgrade API)
+- [x] On-device smoke test (Pixel 7a): app installs over existing data, launches in ~1 s, 11
+      existing documents render, no exceptions in logcat
+- [ ] **Package rename**: still `namespace = "com.example"` with
+      `applicationId = "com.aistudio.wpsoffice.oxfld"` — cannot ship as-is; needs a
+      deliberate decision because the applicationId change resets installed apps
+- [ ] **Localisation**: ~150 UI strings are hard-coded in Kotlin; `strings.xml` has only
+      `app_name`. Extract to resources for translation + typography/a11y review

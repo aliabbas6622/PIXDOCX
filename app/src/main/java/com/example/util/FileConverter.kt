@@ -80,7 +80,22 @@ object FileConverter {
     fun toPlainText(document: OfficeDocument): String = when (document.type) {
         DocumentType.XLS -> SpreadsheetConverter.toText(document)
         DocumentType.PPT -> SlideConverter.toText(document)
+        DocumentType.PDF -> pdfFriendlyText(document)
         else -> stripMarkdown(document.content)
+    }
+
+    /**
+     * PDFs imported with embedded-font encodings stored mojibake in the DB.
+     * Detect it at conversion time (covers already-imported docs) and return
+     * an honest notice instead of garbage bytes.
+     */
+    private fun pdfFriendlyText(document: OfficeDocument): String {
+        val clean = stripMarkdown(document.content)
+        return if (FileImporter.pdfTextLooksGarbled(clean)) {
+            "\u26a0 This PDF uses embedded font encodings that PixDocx cannot " +
+                "convert to selectable text. Share it as PDF to send the original file, " +
+                "or open it in the built-in viewer for a faithful rendering."
+        } else clean
     }
 
     // ------------------------------------------------------------------
@@ -90,6 +105,12 @@ object FileConverter {
     fun toMarkdown(document: OfficeDocument): String = when (document.type) {
         DocumentType.XLS -> SpreadsheetConverter.toMarkdown(document)
         DocumentType.PPT -> SlideConverter.toMarkdown(document)
+        DocumentType.PDF -> {
+            val md = normalizeMarkdown(document.content)
+            if (FileImporter.pdfTextLooksGarbled(md)) {
+                "> \u26a0 This PDF uses embedded font encodings. Share it as PDF to send the original file."
+            } else md
+        }
         else -> normalizeMarkdown(document.content)
     }
 
@@ -111,6 +132,16 @@ object FileConverter {
     fun toHtml(document: OfficeDocument): String = when (document.type) {
         DocumentType.XLS -> SpreadsheetConverter.toHtml(document)
         DocumentType.PPT -> SlideConverter.toHtml(document)
+        DocumentType.PDF -> {
+            if (FileImporter.pdfTextLooksGarbled(document.content)) {
+                DocConverter.toHtml(
+                    document.copy(
+                        content = "\u26a0 This PDF uses embedded font encodings. " +
+                            "Share it as PDF to send the original file."
+                    )
+                )
+            } else DocConverter.toHtml(document)
+        }
         else -> DocConverter.toHtml(document)
     }
 

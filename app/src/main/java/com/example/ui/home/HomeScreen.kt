@@ -23,6 +23,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Sort
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Description
@@ -30,7 +31,6 @@ import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Slideshow
-import androidx.compose.material.icons.filled.Sort
 import androidx.compose.material.icons.filled.TableChart
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
@@ -45,9 +45,13 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarDuration
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -109,7 +113,19 @@ fun HomeScreen(
     var docToExport by remember { mutableStateOf<OfficeDocument?>(null) }
     var sortMenuExpanded by remember { mutableStateOf(false) }
 
-    var importingCount by remember { mutableStateOf(0) }
+    // Import progress and results live in the view model so an in-flight
+    // import survives recomposition and rotation.
+    val importProgress by viewModel.importProgress.collectAsState()
+    val snackbarHostState = remember { SnackbarHostState() }
+
+    LaunchedEffect(viewModel) {
+        viewModel.importMessages.collect { message ->
+            // Replace the previous message instead of queueing behind it, so a
+            // 10-file batch never turns into a minute of stale snackbars.
+            snackbarHostState.currentSnackbarData?.dismiss()
+            snackbarHostState.showSnackbar(message, duration = SnackbarDuration.Short)
+        }
+    }
 
     // SAF picker: accepts md, txt, csv, tsv, pdf, docx, xlsx, pptx and more.
     // OpenMultipleDocuments lets the user select several files at once.
@@ -117,7 +133,6 @@ fun HomeScreen(
         contract = ActivityResultContracts.OpenMultipleDocuments()
     ) { uris ->
         if (uris.isNotEmpty()) {
-            importingCount = uris.size
             uris.forEach { uri ->
                 // Take a persistable grant so the file can be re-read later
                 try {
@@ -128,16 +143,15 @@ fun HomeScreen(
                 } catch (_: SecurityException) {
                     // Provider may not offer persistable grants; import still works now
                 }
-                viewModel.importFile(uri) {
-                    importingCount = (importingCount - 1).coerceAtLeast(0)
-                }
             }
+            viewModel.importFiles(uris)
         }
     }
 
     Scaffold(
         modifier = modifier.fillMaxSize(),
         containerColor = MaterialTheme.colorScheme.background,
+        snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
         floatingActionButton = {
             FloatingActionButton(
                 onClick = { showNewDocSheet = true },
@@ -235,7 +249,7 @@ fun HomeScreen(
                                     modifier = Modifier.testTag("sort_menu_btn")
                                 ) {
                                     Icon(
-                                        imageVector = Icons.Default.Sort,
+                                        imageVector = Icons.AutoMirrored.Filled.Sort,
                                         contentDescription = "Sort Documents",
                                         tint = Color.White
                                     )
@@ -322,7 +336,7 @@ fun HomeScreen(
                 contentPadding = PaddingValues(bottom = 80.dp)
             ) {
                 // BATCH IMPORT PROGRESS
-                if (importingCount > 0) {
+                if (importProgress > 0) {
                     item {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
@@ -333,7 +347,7 @@ fun HomeScreen(
                             CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
                             Spacer(modifier = Modifier.width(8.dp))
                             Text(
-                                text = "Importing $importingCount file${if (importingCount == 1) "" else "s"}...",
+                                text = "Importing $importProgress file${if (importProgress == 1) "" else "s"}...",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )

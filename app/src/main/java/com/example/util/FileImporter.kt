@@ -523,7 +523,37 @@ object FileImporter {
                 sinceNewline = 0
             }
         }
-        return sb.toString().replace(Regex("\n{3,}"), "\n\n").trim()
+        val extracted = sb.toString().replace(Regex("\n{3,}"), "\n\n").trim()
+
+        // PDFs with embedded/CID font encodings yield unmappable glyphs
+        // (mojibake). Detect that and show an honest message instead.
+        if (pdfTextLooksGarbled(extracted)) {
+            return buildString {
+                appendLine("⚠ This PDF uses embedded font encodings that PixDocx")
+                appendLine("cannot convert to selectable text.")
+                appendLine()
+                append("The original file is preserved — open it in the built-in PDF ")
+                append("viewer for a faithful rendering, and share it as PDF to send the real document.")
+            }
+        }
+        return extracted
+    }
+
+    /**
+     * True when [text] is mostly unmappable glyphs (mojibake from CID/embedded
+     * font PDFs) rather than readable prose. Letters/digits/basic punctuation
+     * count as good; anything below a 60% good-ratio is treated as garbage.
+     */
+    internal fun pdfTextLooksGarbled(text: String): Boolean {
+        val sample = text.take(2000)
+        var total = 0
+        var good = 0
+        for (c in sample) {
+            if (c == '\n' || c == '\r' || c == '\t' || c == ' ') continue
+            total++
+            if (c.isLetterOrDigit() || c in ".,;:!?()[]'\"-/@%&+=#*$…°") good++
+        }
+        return total == 0 || good.toFloat() / total < 0.6f
     }
 
     /**

@@ -14,13 +14,20 @@ import com.example.data.model.SpreadsheetGrid
 import com.example.data.repository.OfficeRepository
 import com.example.util.FileImporter
 import com.example.util.PerformanceMetrics
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.debounce
@@ -115,6 +122,14 @@ class OfficeViewModel(application: Application) : AndroidViewModel(application) 
     // Presentation Presentation Mode (Slide Show)
     private val _isPresenting = MutableStateFlow(false)
     val isPresenting: StateFlow<Boolean> = _isPresenting.asStateFlow()
+
+    // Import feedback: how many picked files are still being parsed, and one
+    // human sentence per finished batch for the UI to surface.
+    private val _importProgress = MutableStateFlow(0)
+    val importProgress: StateFlow<Int> = _importProgress.asStateFlow()
+
+    private val _importMessages = MutableSharedFlow<String>(extraBufferCapacity = 16)
+    val importMessages: SharedFlow<String> = _importMessages.asSharedFlow()
 
     // Viewer mode: true = read-only view, false = full editing screen
     private val _viewMode = MutableStateFlow(true)
@@ -259,12 +274,7 @@ class OfficeViewModel(application: Application) : AndroidViewModel(application) 
                 title = title.ifBlank { "Untitled ${type.name}" },
                 type = type,
                 content = content,
-                category = when (type) {
-                    DocumentType.DOC -> "Docs"
-                    DocumentType.XLS -> "Sheets"
-                    DocumentType.PPT -> "Slides"
-                    DocumentType.PDF -> "PDF"
-                },
+                category = categoryFor(type),
                 wordCount = if (type == DocumentType.DOC) 5 else 0,
                 sheetRows = if (type == DocumentType.XLS) 10 else 0,
                 slideCount = if (type == DocumentType.PPT) 1 else 0,
@@ -317,46 +327,70 @@ class OfficeViewModel(application: Application) : AndroidViewModel(application) 
         private val WHITESPACE = Regex("\\s+")
 
         fun countWords(text: String): Int = text.split(WHITESPACE).count { it.isNotBlank() }
+
+        /** Library category a document of [type] belongs to. */
+        fun categoryFor(type: DocumentType): String = when (type) {
+            DocumentType.DOC -> "Docs"
+            DocumentType.XLS -> "Sheets"
+            DocumentType.PPT -> "Slides"
+            DocumentType.PDF -> "PDF"
+        }
     }
 
     /**
-     * Imports a real file (md, txt, csv, docx, xlsx, pptx, pdf...) from the
-     * device into PixDocx. Runs on IO; the heavy parsing never touches Main.
-     * [onDone] fires after this file finished (imported or skipped) so callers
-     * can track multi-file batch progress.
+     * Imports every file the user picked (md, txt, csv, docx, xlsx, pptx, pdf...)
+     * into PixDocx.
+     *
+     * Progress and per-file results are view-model state, so rotation or a
+     * recomposition can no longer lose an in-flight import. Parsing happens on
+     * IO; each file is parsed in parallel but the outcomes are reported in the
+     * order the files were picked. A single file opens straight away; a batch
+     * stays on the library list so the user keeps their place.
      */
-    fun importFile(uri: Uri, onDone: () -> Unit = {}) {
+    fun importFiles(uris: List<Uri>) {
+        if (uris.isEmpty()) return
         viewModelScope.launch {
-            try {
-                val result = withContext(Dispatchers.IO) {
-                    FileImporter.import(getApplication(), uri)
-                }
-                // Skip if a file with the same title and size was already imported
-                val existing = repository.countByTitleAndSize(result.title, result.sizeLabel)
-                if (existing > 0) return@launch
-
-                val doc = OfficeDocument(
-                    title = result.title,
-                    type = result.type,
-                    content = result.content,
-                    category = when (result.type) {
-                        DocumentType.DOC -> "Docs"
-                        DocumentType.XLS -> "Sheets"
-                        DocumentType.PPT -> "Slides"
-                        DocumentType.PDF -> "PDF"
-                    },
-                    wordCount = if (result.type == DocumentType.DOC) countWords(result.content) else 0,
-                    sheetRows = if (result.type == DocumentType.XLS) 20 else 0,
-                    sizeLabel = result.sizeLabel,
-                    localFilePath = result.savedFilePath
-                )
-                val newId = repository.insert(doc)
-                repository.getDocumentByIdDirect(newId)?.let { openDocument(it) }
-            } finally {
-                onDone()
+            _importProgress.value = uris.size
+            val results = coroutineScope {
+                uris.map { uri -> async { importOne(uri) } }.awaitAll()
             }
+            importSummary(results.map { it.outcome })?.let { _importMessages.emit(it) }
+            results.mapNotNull { it.document }.singleOrNull()?.let { openDocument(it) }
         }
     }
+
+    /** Parses and stores one file. Never throws: failures come back as outcomes. */
+    private suspend fun importOne(uri: Uri): ImportedFile {
+        var name = uri.lastPathSegment?.substringAfterLast('/').orEmpty().ifBlank { "file" }
+        try {
+            val result = withContext(Dispatchers.IO) { FileImporter.import(getApplication(), uri) }
+            name = result.title
+            if (repository.countByTitleAndSize(result.title, result.sizeLabel) > 0) {
+                return ImportedFile(ImportOutcome.SkippedDuplicate(result.title), null)
+            }
+            val doc = OfficeDocument(
+                title = result.title,
+                type = result.type,
+                content = result.content,
+                category = categoryFor(result.type),
+                wordCount = if (result.type == DocumentType.DOC) countWords(result.content) else 0,
+                sheetRows = if (result.type == DocumentType.XLS) 20 else 0,
+                sizeLabel = result.sizeLabel,
+                localFilePath = result.savedFilePath
+            )
+            val newId = repository.insert(doc)
+            val stored = repository.getDocumentByIdDirect(newId)
+            return ImportedFile(ImportOutcome.Imported(result.title, result.type), stored)
+        } catch (e: CancellationException) {
+            throw e // never swallow cancellation as an "import failed"
+        } catch (e: Exception) {
+            return ImportedFile(ImportOutcome.Failed(name, e.message), null)
+        } finally {
+            _importProgress.value = (_importProgress.value - 1).coerceAtLeast(0)
+        }
+    }
+
+    private data class ImportedFile(val outcome: ImportOutcome, val document: OfficeDocument?)
 
     fun importCsv(csvContent: String, title: String) {
         viewModelScope.launch {

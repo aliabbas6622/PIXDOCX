@@ -8,7 +8,6 @@ import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -19,7 +18,7 @@ import com.example.ui.OfficeViewModel
 import com.example.ui.calc.SpreadsheetEditorScreen
 import com.example.ui.home.HomeScreen
 import com.example.ui.slides.PresentationEditorScreen
-import com.example.ui.theme.MyApplicationTheme
+import com.example.ui.theme.PixDocxTheme
 import com.example.ui.viewer.DocViewerScreen
 import com.example.ui.viewer.PdfViewerScreen
 import com.example.ui.writer.WordEditorScreen
@@ -29,7 +28,7 @@ class MainActivity : ComponentActivity() {
     super.onCreate(savedInstanceState)
     enableEdgeToEdge()
     setContent {
-      MyApplicationTheme {
+      PixDocxTheme {
         Surface(
           modifier = Modifier.fillMaxSize(),
           color = MaterialTheme.colorScheme.background
@@ -73,10 +72,5 @@ fun OfficeApp(viewModel: OfficeViewModel = viewModel()) {
       DocumentType.PDF -> PdfViewerScreen(document = activeDoc, viewModel = viewModel)
     }
   }
-}
-
-@Composable
-fun Greeting(name: String, modifier: Modifier = Modifier) {
-  Text(text = "Hello $name!", modifier = modifier)
 }
 

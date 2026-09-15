@@ -3,8 +3,12 @@ package com.example.ui.viewer
 import android.graphics.Bitmap
 import android.graphics.pdf.PdfRenderer
 import android.os.ParcelFileDescriptor
+import android.util.LruCache
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.rememberTransformableState
+import androidx.compose.foundation.gestures.transformable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -38,6 +42,7 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -46,14 +51,21 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.example.data.model.OfficeDocument
 import com.example.ui.OfficeViewModel
+import com.example.ui.common.DeleteConfirmDialog
+import com.example.ui.common.ExportDocumentDialog
+import com.example.ui.common.RenameDocumentDialog
+import com.example.ui.common.ViewerOverflowMenu
 import java.io.File
 
 /**
@@ -73,6 +85,10 @@ fun PdfViewerScreen(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
+
+    var showExportDialog by remember { mutableStateOf(false) }
+    var showRenameDialog by remember { mutableStateOf(false) }
+    var showDeleteDialog by remember { mutableStateOf(false) }
 
     var pdfFile by remember(document.id) { mutableStateOf<File?>(null) }
     var pageCount by remember(document.id) { mutableIntStateOf(0) }
@@ -131,6 +147,14 @@ fun PdfViewerScreen(
                     )
                 }
             },
+            actions = {
+                ViewerOverflowMenu(
+                    document = document,
+                    onExport = { showExportDialog = true },
+                    onRename = { showRenameDialog = true },
+                    onDelete = { showDeleteDialog = true }
+                )
+            },
             colors = TopAppBarDefaults.topAppBarColors(
                 containerColor = MaterialTheme.colorScheme.surface
             )
@@ -157,6 +181,35 @@ fun PdfViewerScreen(
             }
         }
     }
+
+    if (showExportDialog) {
+        ExportDocumentDialog(
+            document = document,
+            onDismiss = { showExportDialog = false }
+        )
+    }
+
+    if (showRenameDialog) {
+        RenameDocumentDialog(
+            initialTitle = document.title,
+            onDismiss = { showRenameDialog = false },
+            onConfirm = { newTitle ->
+                viewModel.updateDocumentTitle(newTitle)
+                showRenameDialog = false
+            }
+        )
+    }
+
+    if (showDeleteDialog) {
+        DeleteConfirmDialog(
+            title = document.title,
+            onDismiss = { showDeleteDialog = false },
+            onConfirm = {
+                showDeleteDialog = false
+                viewModel.deleteDocument(document)
+            }
+        )
+    }
 }
 
 @Composable
@@ -165,76 +218,177 @@ private fun PdfPages(
     onLoaded: (Int) -> Unit,
     onError: (String) -> Unit
 ) {
-    val pageBits = remember(file.absolutePath) { mutableStateOf<List<Bitmap>>(emptyList()) }
+    var pageSizes by remember(file.absolutePath) { mutableStateOf<List<Pair<Int, Int>>>(emptyList()) }
+    var failure by remember(file.absolutePath) { mutableStateOf<String?>(null) }
 
+    // Open once just to learn page dimensions; pages themselves are rendered
+    // lazily per item so scrolling stays smooth even for large PDFs.
     LaunchedEffect(file.absolutePath) {
         try {
-            val bits = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            val sizes = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
                 ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY).use { fd ->
                     PdfRenderer(fd).use { renderer ->
-                        val result = ArrayList<Bitmap>(renderer.pageCount)
-                        for (i in 0 until renderer.pageCount) {
-                            renderer.openPage(i).use { page ->
-                                // Render at 2x for crisp text on high-DPI screens,
-                                // capped to keep memory reasonable.
-                                val scale = 2f
-                                val w = (page.width * scale).toInt().coerceAtMost(2048)
-                                val h = (page.height * scale).toInt().coerceAtMost(2048)
-                                val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
-                                bmp.eraseColor(android.graphics.Color.WHITE)
-                                page.render(bmp, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
-                                result.add(bmp)
-                            }
+                        (0 until renderer.pageCount).map { i ->
+                            renderer.openPage(i).use { it.width to it.height }
                         }
-                        result
                     }
                 }
             }
-            pageBits.value = bits
-            onLoaded(bits.size)
+            pageSizes = sizes
+            onLoaded(sizes.size)
         } catch (e: Exception) {
-            onError(e.message ?: "Could not render this PDF.")
+            failure = e.message ?: "Could not render this PDF."
+            onError(failure!!)
         }
     }
 
-    val bits = pageBits.value
-    if (bits.isEmpty()) {
+    val sizes = pageSizes
+    if (sizes.isEmpty()) {
         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             CircularProgressIndicator()
         }
         return
     }
 
+    // Render target: device screen width (clamped). The old 2x supersampling
+    // allocated multi-megapixel bitmaps for every page up front, which was
+    // the main cause of janky scrolling and high memory use.
+    val targetWidth = remember {
+        android.content.res.Resources.getSystem().displayMetrics.widthPixels
+            .coerceIn(720, 1600)
+    }
+    // Keep only ~5 rendered pages in memory; far pages are re-rendered on demand.
+    val pageCache = remember(file.absolutePath) {
+        object : LruCache<Int, Bitmap>(5) {}
+    }
+
+    // Pinch-to-zoom (1x–4x) with pan; double-tap resets. One finger still
+    // scrolls the page list — transformable only claims two-finger gestures.
+    var zoom by remember { mutableFloatStateOf(1f) }
+    var panOffset by remember { mutableStateOf(Offset.Zero) }
+    val transformState = rememberTransformableState { zoomChange, pan, _ ->
+        zoom = (zoom * zoomChange).coerceIn(1f, 4f)
+        panOffset = if (zoom > 1f) panOffset + pan else Offset.Zero
+    }
+
     LazyColumn(
-        modifier = Modifier.fillMaxSize(),
+        modifier = Modifier
+            .fillMaxSize()
+            .transformable(transformState)
+            .pointerInput(Unit) {
+                detectTapGestures(
+                    onDoubleTap = {
+                        zoom = 1f
+                        panOffset = Offset.Zero
+                    }
+                )
+            }
+            .graphicsLayer {
+                scaleX = zoom
+                scaleY = zoom
+                translationX = panOffset.x
+                translationY = panOffset.y
+            },
         contentPadding = PaddingValues(12.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
-        itemsIndexed(bits) { index, bmp ->
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Card(
-                    shape = RoundedCornerShape(6.dp),
-                    colors = CardDefaults.cardColors(containerColor = Color.White),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .shadow(2.dp, RoundedCornerShape(6.dp))
-                ) {
-                    Image(
-                        bitmap = bmp.asImageBitmap(),
-                        contentDescription = "Page ${index + 1}",
-                        contentScale = ContentScale.FillWidth,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                }
-                Spacer(modifier = Modifier.height(6.dp))
-                Text(
-                    text = "${index + 1} / ${bits.size}",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
+        itemsIndexed(
+            items = sizes,
+            key = { index, _ -> index },
+            contentType = { _, _ -> "pdf_page" }
+        ) { index, pageSize ->
+            PdfPageItem(
+                file = file,
+                index = index,
+                pageCount = sizes.size,
+                pageWidthPx = pageSize.first,
+                pageHeightPx = pageSize.second,
+                targetWidth = targetWidth,
+                cache = pageCache
+            )
+        }
+    }
+}
+
+@Composable
+private fun PdfPageItem(
+    file: File,
+    index: Int,
+    pageCount: Int,
+    pageWidthPx: Int,
+    pageHeightPx: Int,
+    targetWidth: Int,
+    cache: LruCache<Int, Bitmap>
+) {
+    var bitmap by remember(index) { mutableStateOf(cache.get(index)) }
+
+    LaunchedEffect(index) {
+        if (bitmap == null) {
+            val rendered = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                cache.get(index) ?: renderPdfPage(file, index, targetWidth)
+            }
+            rendered?.let {
+                cache.put(index, it)
+                bitmap = it
             }
         }
     }
+
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Card(
+            shape = RoundedCornerShape(6.dp),
+            colors = CardDefaults.cardColors(containerColor = Color.White),
+            modifier = Modifier
+                .fillMaxWidth()
+                .shadow(2.dp, RoundedCornerShape(6.dp))
+        ) {
+            val bmp = bitmap
+            if (bmp != null) {
+                Image(
+                    bitmap = bmp.asImageBitmap(),
+                    contentDescription = "Page ${index + 1}",
+                    contentScale = ContentScale.FillWidth,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            } else {
+                // Aspect-correct placeholder keeps the scroll position stable
+                // while the page rasterizes.
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .aspectRatio(pageWidthPx.toFloat() / pageHeightPx.toFloat()),
+                    contentAlignment = Alignment.Center
+                ) {
+                    CircularProgressIndicator(modifier = Modifier.size(28.dp))
+                }
+            }
+        }
+        Spacer(modifier = Modifier.height(6.dp))
+        Text(
+            text = "${index + 1} / $pageCount",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+    }
+}
+
+/** Renders a single PDF page at ~screen resolution, off the main thread. */
+private fun renderPdfPage(file: File, index: Int, targetWidth: Int): Bitmap? = try {
+    ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY).use { fd ->
+        PdfRenderer(fd).use { renderer ->
+            renderer.openPage(index).use { page ->
+                val scale = (targetWidth.toFloat() / page.width).coerceIn(1f, 2f)
+                val w = (page.width * scale).toInt().coerceAtMost(2048)
+                val h = (page.height * scale).toInt().coerceAtMost(2048)
+                Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888).apply {
+                    eraseColor(android.graphics.Color.WHITE)
+                    page.render(this, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
+                }
+            }
+        }
+    }
+} catch (_: Exception) {
+    null
 }
 
 @Composable

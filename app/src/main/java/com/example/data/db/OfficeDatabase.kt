@@ -69,7 +69,7 @@ abstract class OfficeDatabase : RoomDatabase() {
                 // Safety net for version downgrades (e.g. sideloading an older
                 // APK): recreate the DB instead of crashing. Upgrades keep the
                 // proper MIGRATION_1_2 path and preserve user data.
-                .fallbackToDestructiveMigrationOnDowngrade()
+                .fallbackToDestructiveMigrationOnDowngrade(dropAllTables = true)
                 .addCallback(OfficeDatabaseCallback(scope))
                 .build()
                 INSTANCE = instance

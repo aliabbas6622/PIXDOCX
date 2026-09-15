@@ -32,13 +32,13 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.FormatAlignLeft
+import androidx.compose.material.icons.automirrored.filled.FormatAlignRight
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AttachMoney
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.FormatAlignCenter
-import androidx.compose.material.icons.filled.FormatAlignLeft
-import androidx.compose.material.icons.filled.FormatAlignRight
 import androidx.compose.material.icons.filled.FormatBold
 import androidx.compose.material.icons.filled.Functions
 import androidx.compose.material.icons.filled.Percent
@@ -427,8 +427,8 @@ fun SpreadsheetEditorScreen(
                 Icon(
                     imageVector = when (selectedStyle.align) {
                         "CENTER" -> Icons.Default.FormatAlignCenter
-                        "RIGHT" -> Icons.Default.FormatAlignRight
-                        else -> Icons.Default.FormatAlignLeft
+                        "RIGHT" -> Icons.AutoMirrored.Filled.FormatAlignRight
+                        else -> Icons.AutoMirrored.Filled.FormatAlignLeft
                     },
                     contentDescription = "Align",
                     tint = Color.White

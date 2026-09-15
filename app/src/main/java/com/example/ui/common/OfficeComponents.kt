@@ -7,6 +7,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -91,6 +92,72 @@ import com.example.ui.theme.WpsRedLight
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+
+/**
+ * Three-dot overflow menu for the viewer screens: Export/Share, Rename, Delete.
+ * Used by DocViewerScreen and PdfViewerScreen so every opened file exposes the
+ * same actions that DocumentCard offers on the home list.
+ */
+@Composable
+fun ViewerOverflowMenu(
+    document: OfficeDocument,
+    onExport: () -> Unit,
+    onRename: () -> Unit,
+    onDelete: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    var expanded by remember { mutableStateOf(false) }
+
+    Box(modifier = modifier) {
+        IconButton(onClick = { expanded = true }) {
+            Icon(
+                imageVector = Icons.Default.MoreVert,
+                contentDescription = "More options",
+                tint = Color.White
+            )
+        }
+        DropdownMenu(
+            expanded = expanded,
+            onDismissRequest = { expanded = false }
+        ) {
+            DropdownMenuItem(
+                text = { Text("Export / Share") },
+                leadingIcon = {
+                    Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(18.dp))
+                },
+                onClick = {
+                    expanded = false
+                    onExport()
+                }
+            )
+            DropdownMenuItem(
+                text = { Text("Rename") },
+                leadingIcon = {
+                    Icon(Icons.Default.Edit, contentDescription = null, modifier = Modifier.size(18.dp))
+                },
+                onClick = {
+                    expanded = false
+                    onRename()
+                }
+            )
+            DropdownMenuItem(
+                text = { Text("Delete", color = MaterialTheme.colorScheme.error) },
+                leadingIcon = {
+                    Icon(
+                        Icons.Default.Delete,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.size(18.dp)
+                    )
+                },
+                onClick = {
+                    expanded = false
+                    onDelete()
+                }
+            )
+        }
+    }
+}
 
 @Composable
 fun DocumentTypeBadge(type: DocumentType, modifier: Modifier = Modifier) {
@@ -218,15 +285,17 @@ fun DocumentCard(
 
                 Spacer(modifier = Modifier.height(2.dp))
 
+                // PDFs carry no editable metric, so they show the type and date
+                // only — previously this rendered "PDF • PDF • Sep 15".
                 val metaDetail = when (document.type) {
                     DocumentType.DOC -> "${document.wordCount} words"
                     DocumentType.XLS -> "Spreadsheet"
                     DocumentType.PPT -> "${document.slideCount} slides"
-                    DocumentType.PDF -> "PDF"
+                    DocumentType.PDF -> null
                 }
 
                 Text(
-                    text = "${document.type.name} • $metaDetail • $formattedDate",
+                    text = listOfNotNull(document.type.name, metaDetail, formattedDate).joinToString(" • "),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
@@ -395,6 +464,29 @@ fun ExportDocumentDialog(
 
     fun share() {
         try {
+            // PDFs: share the preserved original file so the real PDF goes out
+            // (converting extracted text would share a lossy .txt instead).
+            val originalPdf = if (document.type == DocumentType.PDF) {
+                document.localFilePath.takeIf { it.isNotBlank() }
+                    ?.let { File(it) }
+                    ?.takeIf { it.exists() && it.length() > 0 }
+            } else null
+
+            if (originalPdf != null) {
+                exportedFile = originalPdf
+                val uri = FileProvider.getUriForFile(
+                    context, "${context.packageName}.fileprovider", originalPdf
+                )
+                val intent = Intent(Intent.ACTION_SEND).apply {
+                    type = "application/pdf"
+                    putExtra(Intent.EXTRA_STREAM, uri)
+                    putExtra(Intent.EXTRA_SUBJECT, document.title)
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                }
+                context.startActivity(Intent.createChooser(intent, "Share PDF"))
+                return
+            }
+
             val file = FileConverter.convertToFile(context, document, selectedFormat)
             exportedFile = file
             val shareName = FileConverter.shareFileName(document, selectedFormat)
@@ -451,7 +543,12 @@ fun ExportDocumentDialog(
                     color = MaterialTheme.colorScheme.onSurface
                 )
                 Spacer(modifier = Modifier.height(6.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                // Horizontal scroll so all format chips stay on one line
+                // (the old Row compressed the last chip into vertical text).
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    modifier = Modifier.horizontalScroll(rememberScrollState())
+                ) {
                     supportedFormats.forEach { format ->
                         val selected = format == selectedFormat
                         Surface(
@@ -466,6 +563,8 @@ fun ExportDocumentDialog(
                                 text = format.label,
                                 color = if (selected) Color.White else MaterialTheme.colorScheme.onSurfaceVariant,
                                 style = MaterialTheme.typography.labelLarge,
+                                maxLines = 1,
+                                softWrap = false,
                                 modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
                             )
                         }
@@ -522,6 +621,17 @@ fun ExportDocumentDialog(
                         modifier = Modifier.padding(top = 8.dp)
                     )
                 }
+
+            // PDF documents: the original file is preserved, so sharing the
+            // converted text makes no sense — point the user at Share/PDF.
+            if (document.type == DocumentType.PDF) {
+                Text(
+                    text = "\u2139 Sharing a PDF sends the original file. Text formats export the extracted text only.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 4.dp)
+                )
+            }
 
                 Spacer(modifier = Modifier.height(18.dp))
 
