@@ -1,6 +1,9 @@
 package com.example.ui.common
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -110,7 +113,7 @@ fun DocumentTypeBadge(type: DocumentType, modifier: Modifier = Modifier) {
             text = label,
             color = Color.White,
             fontSize = 11.sp,
-            fontWeight = FontWeight.Bold
+            fontWeight = FontWeight.Medium
         )
     }
 }
@@ -192,7 +195,7 @@ fun DocumentCard(
                 ) {
                     Text(
                         text = document.title,
-                        style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.SemiBold),
+                        style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Medium),
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f, fill = false)
@@ -386,12 +389,14 @@ fun ExportDocumentDialog(
                     Column {
                         Text(
                             text = "Export & Share",
-                            style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold)
+                            style = MaterialTheme.typography.titleLarge
                         )
                         Text(
                             text = document.title,
                             style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
                         )
                     }
                     IconButton(onClick = onDismiss) {
@@ -425,7 +430,11 @@ fun ExportDocumentDialog(
                     )
                 }
 
-                AnimatedVisibility(visible = copiedNotice) {
+                AnimatedVisibility(
+                    visible = copiedNotice,
+                    enter = fadeIn(animationSpec = tween(120)),
+                    exit = fadeOut(animationSpec = tween(100))
+                ) {
                     Text(
                         text = "✓ Copied to clipboard successfully!",
                         color = Color.White,

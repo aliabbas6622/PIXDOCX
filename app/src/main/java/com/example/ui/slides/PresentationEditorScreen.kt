@@ -1,6 +1,11 @@
 package com.example.ui.slides
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -153,8 +158,9 @@ fun PresentationEditorScreen(
                 ) {
                     Text(
                         text = document.title,
-                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                        style = MaterialTheme.typography.titleMedium,
                         maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
                         color = Color.White
                     )
                     Row(
@@ -203,7 +209,7 @@ fun PresentationEditorScreen(
                 ) {
                     Icon(Icons.Default.PlayArrow, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
                     Spacer(modifier = Modifier.width(4.dp))
-                    Text("Present", fontWeight = FontWeight.Bold, color = Color.White)
+                    Text("Present", color = Color.White)
                 }
 
                 IconButton(
@@ -267,8 +273,11 @@ fun PresentationEditorScreen(
                             ) {
                                 Text(
                                     text = "Slide ${selectedIndex + 1} Content (${currentSlide.layout.name})",
-                                    style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold),
-                                    color = Color.White
+                                    style = MaterialTheme.typography.labelLarge,
+                                    color = Color.White,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.weight(1f, fill = false)
                                 )
 
                                 Row {
@@ -566,7 +575,7 @@ private fun SlideContentPreview(
                 Text(
                     text = slide.title,
                     color = Color.White,
-                    fontWeight = FontWeight.Bold,
+                    fontWeight = FontWeight.SemiBold,
                     fontSize = 22.sp,
                     lineHeight = 28.sp
                 )
@@ -584,7 +593,7 @@ private fun SlideContentPreview(
                 Text(
                     text = slide.title,
                     color = Color.White.copy(alpha = 0.85f),
-                    fontWeight = FontWeight.SemiBold,
+                    fontWeight = FontWeight.Medium,
                     fontSize = 14.sp
                 )
                 Spacer(modifier = Modifier.height(10.dp))
@@ -606,7 +615,7 @@ private fun SlideContentPreview(
                 Text(
                     text = slide.title,
                     color = Color.White,
-                    fontWeight = FontWeight.Bold,
+                    fontWeight = FontWeight.SemiBold,
                     fontSize = 17.sp
                 )
                 Spacer(modifier = Modifier.height(10.dp))
@@ -634,7 +643,7 @@ private fun SlideContentPreview(
                 Text(
                     text = slide.title,
                     color = Color.White,
-                    fontWeight = FontWeight.Bold,
+                    fontWeight = FontWeight.SemiBold,
                     fontSize = 18.sp
                 )
                 Spacer(modifier = Modifier.height(8.dp))
@@ -746,7 +755,7 @@ private fun PresentationModeView(
                 Text(
                     text = "Slide ${currentIndex + 1} / ${deck.slides.size}",
                     color = Color.White,
-                    fontWeight = FontWeight.Bold,
+                    fontWeight = FontWeight.Medium,
                     fontSize = 13.sp
                 )
                 Text(
@@ -778,6 +787,8 @@ private fun PresentationModeView(
         // SPEAKER NOTES OVERLAY
         AnimatedVisibility(
             visible = showNotesOverlay,
+            enter = fadeIn(tween(120)) + slideInVertically(tween(150)) { it / 3 },
+            exit = fadeOut(tween(100)) + slideOutVertically(tween(120)) { it / 3 },
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .fillMaxWidth()

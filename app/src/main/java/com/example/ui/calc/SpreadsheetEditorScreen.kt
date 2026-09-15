@@ -1,6 +1,11 @@
 package com.example.ui.calc
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -166,8 +171,9 @@ fun SpreadsheetEditorScreen(
                 ) {
                     Text(
                         text = document.title,
-                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                        style = MaterialTheme.typography.titleMedium,
                         maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
                         color = Color.White
                     )
                     Row(
@@ -318,7 +324,11 @@ fun SpreadsheetEditorScreen(
                 }
 
                 // Quick Formula Chips (Expandable / when typing =)
-                AnimatedVisibility(visible = showFormulaChips) {
+                AnimatedVisibility(
+                    visible = showFormulaChips,
+                    enter = fadeIn(tween(110)) + expandVertically(tween(110)),
+                    exit = fadeOut(tween(90)) + shrinkVertically(tween(90))
+                ) {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -442,8 +452,8 @@ fun SpreadsheetEditorScreen(
                 Text(
                     text = "+ 5 Rows",
                     style = MaterialTheme.typography.labelSmall,
-                    fontWeight = FontWeight.Bold,
-                    color = Color.White
+                    color = Color.White,
+                    maxLines = 1
                 )
             }
         }
@@ -493,12 +503,12 @@ fun SpreadsheetEditorScreen(
                                 .border(1.dp, MaterialTheme.colorScheme.outline),
                             contentAlignment = Alignment.Center
                         ) {
-                            Text(
-                                text = colName,
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 13.sp,
-                                color = Color.White
-                            )
+                        Text(
+                            text = colName,
+                            fontWeight = FontWeight.Medium,
+                            fontSize = 13.sp,
+                            color = Color.White
+                        )
                         }
                     }
                 }
@@ -520,7 +530,7 @@ fun SpreadsheetEditorScreen(
                             ) {
                                 Text(
                                     text = "$r",
-                                    fontWeight = FontWeight.Bold,
+                                    fontWeight = FontWeight.Medium,
                                     fontSize = 12.sp,
                                     color = Color.White
                                 )
@@ -597,14 +607,16 @@ fun SpreadsheetEditorScreen(
                 ) {
                     Text(
                         text = "CELL: $selectedCellId",
-                        fontWeight = FontWeight.Bold,
+                        fontWeight = FontWeight.Medium,
                         fontSize = 12.sp,
                         color = Color.White
                     )
                     Text(
                         text = "VAL: ${if (selectedVal.isBlank()) "(empty)" else selectedVal}",
                         style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                 }
 

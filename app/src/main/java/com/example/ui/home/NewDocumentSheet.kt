@@ -345,7 +345,7 @@ Kotlin, Jetpack Compose, Room Database, SQLite, Architecture Components
             ) {
                 Text(
                     text = "Create New",
-                    style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Bold),
+                    style = MaterialTheme.typography.headlineSmall,
                     color = Color.White
                 )
 
@@ -426,7 +426,7 @@ Kotlin, Jetpack Compose, Room Database, SQLite, Architecture Components
 
             Text(
                 text = "Choose a Template:",
-                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
+                style = MaterialTheme.typography.titleMedium,
                 color = Color.White
             )
 
@@ -481,7 +481,7 @@ Kotlin, Jetpack Compose, Room Database, SQLite, Architecture Components
                             Column(modifier = Modifier.weight(1f)) {
                                 Text(
                                     text = template.title,
-                                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                                    style = MaterialTheme.typography.titleMedium,
                                     color = Color.White
                                 )
                                 Text(

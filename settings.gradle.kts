@@ -22,6 +22,6 @@ dependencyResolutionManagement {
   }
 }
 
-rootProject.name = "WPS Office"
+rootProject.name = "PixDocx"
 
 include(":app")

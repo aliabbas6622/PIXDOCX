@@ -1,6 +1,7 @@
 package com.example.ui
 
 import android.app.Application
+import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.data.db.OfficeDatabase
@@ -11,6 +12,7 @@ import com.example.data.model.SlideItem
 import com.example.data.model.SlideLayout
 import com.example.data.model.SpreadsheetGrid
 import com.example.data.repository.OfficeRepository
+import com.example.util.FileImporter
 import com.example.util.PerformanceMetrics
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.Dispatchers
@@ -305,6 +307,34 @@ class OfficeViewModel(application: Application) : AndroidViewModel(application) 
         private val WHITESPACE = Regex("\\s+")
 
         fun countWords(text: String): Int = text.split(WHITESPACE).count { it.isNotBlank() }
+    }
+
+    /**
+     * Imports a real file (md, txt, csv, docx, xlsx, pptx, pdf...) from the
+     * device into PixDocx. Runs on IO; the heavy parsing never touches Main.
+     */
+    fun importFile(uri: Uri) {
+        viewModelScope.launch {
+            val result = withContext(Dispatchers.IO) {
+                FileImporter.import(getApplication(), uri)
+            }
+            val doc = OfficeDocument(
+                title = result.title,
+                type = result.type,
+                content = result.content,
+                category = when (result.type) {
+                    DocumentType.DOC -> "Docs"
+                    DocumentType.XLS -> "Sheets"
+                    DocumentType.PPT -> "Slides"
+                    DocumentType.PDF -> "PDF"
+                },
+                wordCount = if (result.type == DocumentType.DOC) countWords(result.content) else 0,
+                sheetRows = if (result.type == DocumentType.XLS) 20 else 0,
+                sizeLabel = result.sizeLabel
+            )
+            val newId = repository.insert(doc)
+            repository.getDocumentByIdDirect(newId)?.let { openDocument(it) }
+        }
     }
 
     fun importCsv(csvContent: String, title: String) {

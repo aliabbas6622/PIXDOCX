@@ -1,6 +1,11 @@
 package com.example.ui.writer
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -74,6 +79,7 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -209,8 +215,9 @@ fun WordEditorScreen(
                 ) {
                     Text(
                         text = document.title,
-                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                        style = MaterialTheme.typography.titleMedium,
                         maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
                         color = Color.White
                     )
                     Row(
@@ -312,7 +319,11 @@ fun WordEditorScreen(
         )
 
         // FIND & REPLACE BANNER
-        AnimatedVisibility(visible = showFindReplace) {
+        AnimatedVisibility(
+            visible = showFindReplace,
+            enter = fadeIn(tween(110)) + expandVertically(tween(110)),
+            exit = fadeOut(tween(90)) + shrinkVertically(tween(90))
+        ) {
             Surface(
                 tonalElevation = 4.dp,
                 color = MaterialTheme.colorScheme.surface,
@@ -336,8 +347,7 @@ fun WordEditorScreen(
                             Text(
                                 text = "$searchMatchCount found",
                                 style = MaterialTheme.typography.labelSmall,
-                                color = Color.White,
-                                fontWeight = FontWeight.Bold
+                                color = Color.White
                             )
                         }
                         IconButton(onClick = { showFindReplace = false }) {

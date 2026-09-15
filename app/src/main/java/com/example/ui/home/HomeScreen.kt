@@ -25,6 +25,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Description
+import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Slideshow
@@ -54,8 +55,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.data.model.OfficeDocument
@@ -94,6 +98,7 @@ fun HomeScreen(
     val selectedTab by viewModel.selectedTab.collectAsState()
     val searchQuery by viewModel.searchQuery.collectAsState()
     val sortOrder by viewModel.sortOrder.collectAsState()
+    val context = LocalContext.current
 
     var showNewDocSheet by remember { mutableStateOf(false) }
     var showImportCsvDialog by remember { mutableStateOf(false) }
@@ -101,6 +106,24 @@ fun HomeScreen(
     var docToDelete by remember { mutableStateOf<OfficeDocument?>(null) }
     var docToExport by remember { mutableStateOf<OfficeDocument?>(null) }
     var sortMenuExpanded by remember { mutableStateOf(false) }
+
+    // SAF picker: accepts md, txt, csv, tsv, pdf, docx, xlsx, pptx and more
+    val filePicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        uri?.let {
+            // Take a persistable grant so the file can be re-read later
+            try {
+                context.contentResolver.takePersistableUriPermission(
+                    it,
+                    android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION
+                )
+            } catch (_: SecurityException) {
+                // Provider may not offer persistable grants; import still works now
+            }
+            viewModel.importFile(it)
+        }
+    }
 
     Scaffold(
         modifier = modifier.fillMaxSize(),
@@ -136,6 +159,7 @@ fun HomeScreen(
             Surface(
                 tonalElevation = 1.dp,
                 color = MaterialTheme.colorScheme.surface,
+                shape = RoundedCornerShape(bottomStart = 20.dp, bottomEnd = 20.dp),
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
@@ -156,21 +180,33 @@ fun HomeScreen(
                                 contentAlignment = Alignment.Center
                             ) {
                                 Text(
-                                    text = "W",
+                                    text = "P",
                                     color = Color.White,
-                                    fontWeight = FontWeight.Black,
+                                    fontWeight = FontWeight.Bold,
                                     fontSize = 16.sp
                                 )
                             }
 
                             Text(
-                                text = "WPS Office",
-                                style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
+                                text = "PixDocx",
+                                style = MaterialTheme.typography.titleLarge,
                                 color = MaterialTheme.colorScheme.onSurface
                             )
                         }
 
                         Row(verticalAlignment = Alignment.CenterVertically) {
+                            // Open File From Device
+                            IconButton(
+                                onClick = { filePicker.launch(arrayOf("*/*")) },
+                                modifier = Modifier.testTag("open_file_btn")
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.FolderOpen,
+                                    contentDescription = "Open file from device",
+                                    tint = Color.White
+                                )
+                            }
+
                             // Search Toggle
                             IconButton(
                                 onClick = { searchActive = !searchActive }
@@ -359,7 +395,7 @@ fun HomeScreen(
                                 HubTab.SLIDES -> "Presentations"
                                 HubTab.PINNED -> "Pinned"
                             },
-                            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                            style = MaterialTheme.typography.titleSmall,
                             color = MaterialTheme.colorScheme.onSurface
                         )
 
@@ -398,14 +434,16 @@ fun HomeScreen(
                             Spacer(modifier = Modifier.height(14.dp))
                             Text(
                                 text = if (searchQuery.isNotBlank()) "No matching documents" else "No documents found",
-                                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                                color = MaterialTheme.colorScheme.onSurface
+                                style = MaterialTheme.typography.titleMedium,
+                                color = MaterialTheme.colorScheme.onSurface,
+                                textAlign = androidx.compose.ui.text.style.TextAlign.Center
                             )
                             Spacer(modifier = Modifier.height(6.dp))
                             Text(
                                 text = if (searchQuery.isNotBlank()) "Try a different search term" else "Tap + to create a new document or spreadsheet",
                                 style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                textAlign = androidx.compose.ui.text.style.TextAlign.Center
                             )
                         }
                     }
