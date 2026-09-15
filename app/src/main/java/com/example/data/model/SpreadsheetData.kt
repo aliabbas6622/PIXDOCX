@@ -55,11 +55,20 @@ class SpreadsheetGrid(
     val maxRows: Int = 40,
     val cells: MutableMap<String, CellData> = mutableMapOf()
 ) {
+    // Evaluation cache, invalidated on every mutation. Full-grid operations
+    // (CSV export, visibility recalc) evaluate overlapping ranges repeatedly,
+    // so memoizing turns O(n^2) re-evaluation into O(n).
+    private var evalCache: MutableMap<String, String> = mutableMapOf()
+
+    // Active evaluation stack for cycle detection (e.g. A1 = A1+1).
+    private val evaluating = HashSet<String>()
+
     fun getRaw(cellId: String): String = cells[cellId]?.rawValue ?: ""
     fun getStyle(cellId: String): CellStyle = cells[cellId]?.style ?: CellStyle()
 
     fun setCell(cellId: String, rawValue: String, style: CellStyle? = null) {
         val currentStyle = style ?: getStyle(cellId)
+        evalCache.clear()
         if (rawValue.isBlank() && currentStyle == CellStyle()) {
             cells.remove(cellId)
         } else {
@@ -69,6 +78,7 @@ class SpreadsheetGrid(
 
     fun updateStyle(cellId: String, update: (CellStyle) -> CellStyle) {
         val current = cells[cellId] ?: CellData()
+        evalCache.clear()
         cells[cellId] = current.copy(style = update(current.style))
     }
 
@@ -82,6 +92,22 @@ class SpreadsheetGrid(
      * =A1+B1, =A1*1.2, =A1-B1, =A1/2
      */
     fun evaluateDisplayValue(cellId: String): String {
+        evalCache[cellId]?.let { return it }
+
+        // Guard against circular references: A1 = "=B1", B1 = "=A1"
+        if (!evaluating.add(cellId)) return "#CIRCULAR!"
+
+        val result = try {
+            evaluateUncached(cellId)
+        } finally {
+            evaluating.remove(cellId)
+        }
+
+        evalCache[cellId] = result
+        return result
+    }
+
+    private fun evaluateUncached(cellId: String): String {
         val raw = getRaw(cellId).trim()
         if (!raw.startsWith("=")) {
             return formatValue(raw, getStyle(cellId).format)

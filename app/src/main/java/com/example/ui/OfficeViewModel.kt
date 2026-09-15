@@ -11,6 +11,8 @@ import com.example.data.model.SlideItem
 import com.example.data.model.SlideLayout
 import com.example.data.model.SpreadsheetGrid
 import com.example.data.repository.OfficeRepository
+import com.example.util.PerformanceMetrics
+import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -19,6 +21,8 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -36,6 +40,7 @@ data class EditorSaveState(
     val lastSavedTime: Long = System.currentTimeMillis()
 )
 
+@OptIn(FlowPreview::class)
 class OfficeViewModel(application: Application) : AndroidViewModel(application) {
 
     private val database = OfficeDatabase.getDatabase(application, viewModelScope)
@@ -53,10 +58,15 @@ class OfficeViewModel(application: Application) : AndroidViewModel(application) 
 
     private val allDocsFlow = repository.allDocuments
 
+    // Debounce keystrokes so typing in the search field does not re-filter
+    // (and re-sort) the full document list on every character.
+    private val debouncedSearchQuery = _searchQuery
+        .debounce { query -> if (query.isBlank()) 0L else 250L }
+
     val documentList: StateFlow<List<OfficeDocument>> = combine(
         allDocsFlow,
         _selectedTab,
-        _searchQuery,
+        debouncedSearchQuery,
         _sortOrder
     ) { docs, tab, query, sort ->
         val filtered = docs.filter { doc ->
@@ -79,7 +89,11 @@ class OfficeViewModel(application: Application) : AndroidViewModel(application) 
             SortOrder.NAME_ASC -> filtered.sortedBy { it.title.lowercase() }
             SortOrder.TYPE -> filtered.sortedBy { it.type.name }
         }
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+    }
+        // Filter + sort off the main thread; combine blocks can be expensive
+        // with large document lists (content is searched too).
+        .flowOn(Dispatchers.Default)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     // Active Editor State
     private val _currentDocument = MutableStateFlow<OfficeDocument?>(null)
@@ -157,7 +171,7 @@ class OfficeViewModel(application: Application) : AndroidViewModel(application) 
         }
 
         val wordCount = if (current.type == DocumentType.DOC) {
-            newContent.split(Regex("\\s+")).count { it.isNotBlank() }
+            countWords(newContent)
         } else current.wordCount
 
         val updated = current.copy(
@@ -203,7 +217,9 @@ class OfficeViewModel(application: Application) : AndroidViewModel(application) 
         val current = _currentDocument.value ?: return
         autoSaveJob?.cancel()
         viewModelScope.launch {
+            val startTime = System.currentTimeMillis()
             repository.update(current)
+            PerformanceMetrics.record(PerformanceMetrics.Keys.SAVE_OPERATION_TIME, System.currentTimeMillis() - startTime)
             _saveState.value = EditorSaveState(status = "Saved", lastSavedTime = System.currentTimeMillis())
         }
     }
@@ -282,6 +298,13 @@ class OfficeViewModel(application: Application) : AndroidViewModel(application) 
         viewModelScope.launch {
             repository.duplicateDocument(doc.id)
         }
+    }
+
+    companion object {
+        // Hoisted: compiling a Regex on every keystroke is wasteful.
+        private val WHITESPACE = Regex("\\s+")
+
+        fun countWords(text: String): Int = text.split(WHITESPACE).count { it.isNotBlank() }
     }
 
     fun importCsv(csvContent: String, title: String) {

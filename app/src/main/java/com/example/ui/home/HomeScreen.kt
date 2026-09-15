@@ -412,7 +412,9 @@ fun HomeScreen(
                 }
 
                 // DOCUMENT ITEMS LIST
-                items(documents, key = { it.id }) { doc ->
+                // contentType gives the lazy layout one recycling pool per
+                // document type, improving scroll performance on long lists.
+                items(documents, key = { it.id }, contentType = { it.type }) { doc ->
                     DocumentCard(
                         document = doc,
                         onClick = { viewModel.openDocument(doc) },

@@ -42,11 +42,22 @@ android {
   buildTypes {
     release {
       isCrunchPngs = false
-      isMinifyEnabled = false
+      // R8 code shrinking + resource shrinking (OPTIMIZE_PERFORMANCE.md §7)
+      isMinifyEnabled = true
+      isShrinkResources = true
       proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
       signingConfig = signingConfigs.getByName("release")
     }
     debug { signingConfig = signingConfigs.getByName("debugConfig") }
+    // Allow Perfetto/CPU profiling of release builds on test devices
+    // (DEEP_OPTIMIZATION_ANDROID17_PIXEL7A.md §2.3)
+    create("benchmark") {
+      initWith(getByName("release"))
+      matchingFallbacks.add("release")
+      isDebuggable = false
+      isProfileable = true
+      signingConfig = signingConfigs.getByName("debugConfig")
+    }
   }
   compileOptions {
     sourceCompatibility = JavaVersion.VERSION_11

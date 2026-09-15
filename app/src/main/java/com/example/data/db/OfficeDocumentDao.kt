@@ -5,6 +5,7 @@ import androidx.room.Delete
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
+import androidx.room.Transaction
 import androidx.room.Update
 import com.example.data.model.DocumentType
 import com.example.data.model.OfficeDocument
@@ -32,6 +33,23 @@ interface OfficeDocumentDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertDocument(document: OfficeDocument): Long
+
+    /**
+     * Batch insert inside a single transaction. A transaction amortizes the
+     * WAL/journal commit cost across all rows, which is orders of magnitude
+     * faster than N individual inserts for seed data or bulk imports.
+     */
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertDocuments(documents: List<OfficeDocument>)
+
+    /**
+     * Convenience wrapper kept suspend + @Transaction so callers get
+     * atomic, single-commit semantics for bulk operations.
+     */
+    @Transaction
+    suspend fun bulkInsertDocuments(documents: List<OfficeDocument>) {
+        insertDocuments(documents)
+    }
 
     @Update
     suspend fun updateDocument(document: OfficeDocument)

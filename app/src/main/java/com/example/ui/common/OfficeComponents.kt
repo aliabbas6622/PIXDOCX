@@ -51,6 +51,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -132,10 +133,19 @@ fun DocumentCard(
         SimpleDateFormat("MMM d • HH:mm", Locale.getDefault()).format(Date(document.lastModified))
     }
 
+    // Keep the latest callbacks without recomposing this card when only the
+    // lambda identity changes (e.g. parent recreates closures per item).
+    val currentOnClick by rememberUpdatedState(onClick)
+    val currentOnTogglePin by rememberUpdatedState(onTogglePin)
+    val currentOnRename by rememberUpdatedState(onRename)
+    val currentOnDuplicate by rememberUpdatedState(onDuplicate)
+    val currentOnDelete by rememberUpdatedState(onDelete)
+    val currentOnExport by rememberUpdatedState(onExport)
+
     Card(
         modifier = modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick)
+            .clickable(onClick = currentOnClick)
             .testTag("doc_card_${document.id}"),
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surface
@@ -244,7 +254,7 @@ fun DocumentCard(
                         },
                         onClick = {
                             menuExpanded = false
-                            onTogglePin()
+                            currentOnTogglePin()
                         }
                     )
                     DropdownMenuItem(
@@ -252,7 +262,7 @@ fun DocumentCard(
                         leadingIcon = { Icon(Icons.Default.Edit, contentDescription = null, tint = Color.White) },
                         onClick = {
                             menuExpanded = false
-                            onRename()
+                            currentOnRename()
                         }
                     )
                     DropdownMenuItem(
@@ -260,7 +270,7 @@ fun DocumentCard(
                         leadingIcon = { Icon(Icons.Default.ContentCopy, contentDescription = null, tint = Color.White) },
                         onClick = {
                             menuExpanded = false
-                            onDuplicate()
+                            currentOnDuplicate()
                         }
                     )
                     DropdownMenuItem(
@@ -268,7 +278,7 @@ fun DocumentCard(
                         leadingIcon = { Icon(Icons.Default.Share, contentDescription = null, tint = Color.White) },
                         onClick = {
                             menuExpanded = false
-                            onExport()
+                            currentOnExport()
                         }
                     )
                     DropdownMenuItem(
@@ -276,7 +286,7 @@ fun DocumentCard(
                         leadingIcon = { Icon(Icons.Default.Delete, contentDescription = null, tint = Color.White) },
                         onClick = {
                             menuExpanded = false
-                            onDelete()
+                            currentOnDelete()
                         }
                     )
                 }

@@ -140,8 +140,9 @@ fun WordEditorScreen(
     // Update match count for search
     LaunchedEffect(findQuery, textFieldValue.text) {
         if (findQuery.isNotBlank()) {
-            searchMatchCount = Regex.escape(findQuery).toRegex(RegexOption.IGNORE_CASE)
-                .findAll(textFieldValue.text).count()
+            // rememberUpdatedState-style hoisting done via companion: compiling
+            // a regex per recomposition is wasteful (see optimization guides).
+            searchMatchCount = findRegex(findQuery).findAll(textFieldValue.text).count()
         } else {
             searchMatchCount = 0
         }
@@ -188,7 +189,7 @@ fun WordEditorScreen(
     }
 
     val wordCount = remember(textFieldValue.text) {
-        textFieldValue.text.split(Regex("\\s+")).count { it.isNotBlank() }
+        OfficeViewModel.countWords(textFieldValue.text)
     }
     val charCount = remember(textFieldValue.text) {
         textFieldValue.text.length
@@ -574,4 +575,17 @@ private fun ToolbarButton(
             textDecoration = if (isStrike) androidx.compose.ui.text.style.TextDecoration.LineThrough else null
         )
     }
+}
+
+// Hoisted: building a case-insensitive regex per LaunchedEffect run is
+// wasteful; a small LRU-style cache keeps the last compiled patterns.
+private var cachedFindPattern: Pair<String, Regex>? = null
+
+private fun findRegex(query: String): Regex {
+    cachedFindPattern?.let { (q, regex) ->
+        if (q == query) return regex
+    }
+    val regex = Regex.escape(query).toRegex(RegexOption.IGNORE_CASE)
+    cachedFindPattern = query to regex
+    return regex
 }

@@ -19,3 +19,15 @@
 # If you keep the line number information, uncomment this to
 # hide the original source file name.
 #-renamesourcefileattribute SourceFile
+
+# --- PixDocx optimization rules (see OPTIMIZE_PERFORMANCE.md §7) ---
+
+# Keep Room entities: reflection-free but keeps field names readable in
+# crash reports; Room's generated code matches on column names.
+-keep class com.example.data.model.** { *; }
+
+# Moshi codegen uses the generated adapter; keep model classes it reflects on.
+-keep class kotlin.Metadata { *; }
+
+# Preserve coroutine internals on release (avoid crashed continuations).
+-keepclassmembers class kotlinx.coroutines.** { volatile <fields>; }

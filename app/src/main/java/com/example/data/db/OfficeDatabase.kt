@@ -5,17 +5,19 @@ import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.sqlite.db.SupportSQLiteDatabase
+import java.util.concurrent.Executors
 import com.example.data.model.DocumentType
 import com.example.data.model.OfficeDocument
 import com.example.data.model.SlideDeck
 import com.example.data.model.SlideItem
 import com.example.data.model.SlideLayout
 import com.example.data.model.SpreadsheetGrid
+import androidx.room.RoomDatabase.JournalMode
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 
-@Database(entities = [OfficeDocument::class], version = 1, exportSchema = false)
+@Database(entities = [OfficeDocument::class], version = 2, exportSchema = false)
 abstract class OfficeDatabase : RoomDatabase() {
     abstract fun officeDocumentDao(): OfficeDocumentDao
 
@@ -23,13 +25,42 @@ abstract class OfficeDatabase : RoomDatabase() {
         @Volatile
         private var INSTANCE: OfficeDatabase? = null
 
+        /**
+         * Migration 1 -> 2: add query indices for hot paths (type filter,
+         * pinned sort, recency order, category filter, title search).
+         * Creating them here avoids a destructive rebuild for existing users.
+         */
+        private val MIGRATION_1_2 = object : androidx.room.migration.Migration(1, 2) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("CREATE INDEX IF NOT EXISTS idx_type ON office_documents (type)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS idx_pinned ON office_documents (isPinned)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS idx_modified ON office_documents (lastModified)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS idx_category ON office_documents (category)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS idx_type_pinned ON office_documents (type, isPinned)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS idx_title ON office_documents (title)")
+            }
+        }
+
         fun getDatabase(context: Context, scope: CoroutineScope): OfficeDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
                     context.applicationContext,
                     OfficeDatabase::class.java,
                     "wps_office_database.db"
-                ).addCallback(OfficeDatabaseCallback(scope))
+                )
+                // WAL allows readers to proceed concurrently with a writer,
+                // keeping list queries responsive while an auto-save commits.
+                .setJournalMode(JournalMode.WRITE_AHEAD_LOGGING)
+                // Dedicated executors: 2 threads for queries, a single
+                // serialized thread for transactions (write ordering).
+                .setQueryExecutor(Executors.newFixedThreadPool(2))
+                .setTransactionExecutor(Executors.newSingleThreadExecutor())
+                .addMigrations(MIGRATION_1_2)
+                // Safety net for version downgrades (e.g. sideloading an older
+                // APK): recreate the DB instead of crashing. Upgrades keep the
+                // proper MIGRATION_1_2 path and preserve user data.
+                .fallbackToDestructiveMigrationOnDowngrade()
+                .addCallback(OfficeDatabaseCallback(scope))
                 .build()
                 INSTANCE = instance
                 instance
@@ -77,7 +108,9 @@ During the past quarter, our mobile product suite achieved exceptional milestone
 [ ] Ship enterprise document encryption and local backup
             """.trimIndent()
 
-            dao.insertDocument(
+            val seedDocs = mutableListOf<OfficeDocument>()
+
+            seedDocs.add(
                 OfficeDocument(
                     title = "Quarterly Business Review",
                     type = DocumentType.DOC,
@@ -128,7 +161,7 @@ During the past quarter, our mobile product suite achieved exceptional milestone
             grid.setCell("C7", "=C2-C6")
             grid.setCell("D7", "=D2-D6")
 
-            dao.insertDocument(
+            seedDocs.add(
                 OfficeDocument(
                     title = "Annual Department Budget",
                     type = DocumentType.XLS,
@@ -174,7 +207,7 @@ During the past quarter, our mobile product suite achieved exceptional milestone
                 )
             )
 
-            dao.insertDocument(
+            seedDocs.add(
                 OfficeDocument(
                     title = "Mobile Innovation Keynote",
                     type = DocumentType.PPT,
@@ -200,7 +233,7 @@ Deliver a responsive, distraction-free office workspace for students, executives
 3. **Ergonomic Controls:** Thumb-friendly formatting toolbars placed at the bottom for comfortable one-handed typing.
             """.trimIndent()
 
-            dao.insertDocument(
+            seedDocs.add(
                 OfficeDocument(
                     title = "Offline Office Whitepaper",
                     type = DocumentType.DOC,
@@ -211,6 +244,9 @@ Deliver a responsive, distraction-free office workspace for students, executives
                     sizeLabel = "10 KB"
                 )
             )
+
+            // Single-transaction batch insert instead of 4 individual commits
+            dao.bulkInsertDocuments(seedDocs)
         }
     }
 }
