@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths>
+    <!-- Exported documents written by FileConverter (filesDir/exports/) -->
+    <files-path name="exports" path="exports/" />
+    <!-- Imported originals preserved by FileImporter (filesDir/imports/) -->
+    <files-path name="imports" path="imports/" />
+</paths>

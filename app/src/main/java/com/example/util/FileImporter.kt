@@ -24,8 +24,8 @@ import java.util.zip.ZipInputStream
  * - DOCX: .docx          -> paragraph text (Open XML word/document.xml)
  * - XLSX: .xlsx          -> worksheets as a grid (Open XML sheet XML)
  * - PPTX: .pptx          -> slides (Open XML DrawingML)
- * - PDF:  .pdf           -> best-effort text extraction of uncompressed
- *                           content streams (Tj/TJ text-show operators)
+ * - PDF:  .pdf           -> text extraction from uncompressed + FlateDecode
+ *                           (zlib) compressed content streams (Tj/TJ operators)
  */
 object FileImporter {
 
@@ -39,7 +39,7 @@ object FileImporter {
     )
 
     private const val MAX_FILE_BYTES = 16 * 1024 * 1024 // 16 MB safety cap
-    private const val MAX_ZIP_ENTRY_BYTES = 8 * 1024 * 1024
+    private const val MAX_ZIP_ENTRY_BYTES = 24 * 1024 * 1024
 
     /** Maps a file name to a document type. Falls back to text/doc for unknowns. */
     fun detectType(fileName: String): DocumentType {
@@ -450,9 +450,15 @@ object FileImporter {
     }
 
     // ------------------------------------------------------------------
-    // PDF (best-effort: uncompressed text-show operators)
+    // PDF (text-show operators, with FlateDecode stream decompression)
     // ------------------------------------------------------------------
 
+    /**
+     * Extracts text from a PDF. Most real-world PDFs store their content
+     * streams Flate-compressed, so we inflate every `stream ... endstream`
+     * block we can and run the Tj/TJ text-operator scan over the raw file
+     * plus all successfully decompressed streams.
+     */
     private fun importPdf(stream: InputStream): String {
         val bytes = stream.readBytes().let { if (it.size > MAX_FILE_BYTES) it.copyOf(MAX_FILE_BYTES) else it }
         val raw = String(bytes, Charsets.ISO_8859_1)
@@ -460,52 +466,96 @@ object FileImporter {
         val textRegex = Regex("""\(((?:[^()\\]|\\.)*)\)\s*(Tj|'|")""")
         val arrayRegex = Regex("""\[((?:[^\[\]\\]|\\.)*)\]\s*TJ""")
 
+        fun extractPieces(text: String): List<String> {
+            val matches = sortedMapOf<Int, String>()
+            for (m in textRegex.findAll(text)) {
+                val s = unescapePdfString(m.groupValues[1])
+                if (s.isNotBlank()) matches[m.range.first] = s
+            }
+            for (m in arrayRegex.findAll(text)) {
+                // TJ arrays: concatenate string literals inside
+                val inner = m.groupValues[1]
+                val joined = Regex("""\(((?:[^()\\]|\\.)*)\)""").findAll(inner)
+                    .joinToString("") { unescapePdfString(it.groupValues[1]) }
+                if (joined.isNotBlank()) matches[m.range.first] = joined
+            }
+            return matches.values.toList()
+        }
+
+        // Raw file first (uncompressed content streams), then each decompressed stream
         val pieces = mutableListOf<String>()
-
-        // Collect text-show operators in document order
-        val matches = sortedMapOf<Int, String>()
-        for (m in textRegex.findAll(raw)) {
-            matches[m.range.first] = unescapePdfString(m.groupValues[1])
+        pieces.addAll(extractPieces(raw))
+        for (inflated in inflateFlateStreams(raw)) {
+            pieces.addAll(extractPieces(inflated))
         }
-        for (m in arrayRegex.findAll(raw)) {
-            // TJ arrays: concatenate string literals inside
-            val inner = m.groupValues[1]
-            val joined = Regex("""\(((?:[^()\\]|\\.)*)\)""").findAll(inner)
-                .joinToString("") { unescapePdfString(it.groupValues[1]) }
-            if (joined.isNotBlank()) matches[m.range.first] = joined
-        }
-
-        pieces.addAll(matches.values)
 
         if (pieces.isEmpty()) {
             val pageCount = Regex("/Type\\s*/Page[^s]").findAll(raw).count()
             return buildString {
-                appendLine("⚠ This PDF stores text in compressed/encoded streams")
-                appendLine("that PixDocx cannot decode without a full PDF engine.")
+                appendLine("⚠ This PDF stores text as scanned images or in an")
+                appendLine("encoding PixDocx cannot decode without a full PDF engine.")
                 if (pageCount > 0) appendLine("Detected pages: $pageCount")
                 appendLine()
-                append("The document was imported for reference; metadata may be readable in a desktop viewer.")
+                append("The document was imported for reference; the original file is preserved and opens in the built-in PDF viewer.")
             }
         }
 
-        // Heuristic line reconstruction: break after sentence enders and bullets,
-        // and when a gap in byte positions suggests a positioning operator between.
+        // Heuristic line reconstruction: join pieces with spaces, break lines
+        // after sentence punctuation or long runs.
         val sb = StringBuilder()
-        var prevEnd = -1
-        for ((pos, textPiece) in matches) {
-            val gap = prevEnd >= 0 && pos - prevEnd > 60
-            if (sb.isNotEmpty() && (gap || sb.lastOrNull() == '\n')) {
-                // start new line if last line ended with sentence punctuation
-            } else if (sb.isNotEmpty() && !sb.endsWith("\n")) {
-                sb.append(' ')
-            }
-            sb.append(textPiece.trim())
-            if (textPiece.trimEnd().endsWith(".") || textPiece.trimEnd().endsWith(":")) {
+        var sinceNewline = 0
+        for (piece in pieces) {
+            val textPiece = piece.trim()
+            if (textPiece.isEmpty()) continue
+            if (sb.isNotEmpty() && sinceNewline > 120) {
                 sb.append('\n')
+                sinceNewline = 0
+            } else if (sb.isNotEmpty() && !sb.endsWith('\n')) {
+                sb.append(' ')
+                sinceNewline++
             }
-            prevEnd = pos + textPiece.length
+            sb.append(textPiece)
+            sinceNewline += textPiece.length
+            if (textPiece.endsWith(".") || textPiece.endsWith(":") ||
+                textPiece.endsWith("!") || textPiece.endsWith("?"))
+            {
+                sb.append('\n')
+                sinceNewline = 0
+            }
         }
         return sb.toString().replace(Regex("\n{3,}"), "\n\n").trim()
+    }
+
+    /**
+     * Finds every `stream ... endstream` block in the raw PDF bytes and tries
+     * to zlib-inflate it. Blocks that aren't FlateDecode (JPEG/CCITT image
+     * data etc.) simply fail to inflate and are skipped.
+     */
+    private fun inflateFlateStreams(raw: String): List<String> {
+        val results = mutableListOf<String>()
+        var idx = 0
+        while (true) {
+            val s = raw.indexOf("stream", idx)
+            if (s < 0) break
+            var dataStart = s + "stream".length
+            if (dataStart < raw.length && raw[dataStart] == '\r') dataStart++
+            if (dataStart < raw.length && raw[dataStart] == '\n') dataStart++
+            val e = raw.indexOf("endstream", dataStart)
+            if (e < 0) break
+            idx = e + "endstream".length
+
+            val chunk = ByteArray(e - dataStart) { i -> raw[dataStart + i].code.toByte() }
+            if (chunk.size > MAX_ZIP_ENTRY_BYTES) continue
+            try {
+                val inflated = java.util.zip.InflaterInputStream(chunk.inputStream()).use { it.readBytes() }
+                if (inflated.isNotEmpty()) {
+                    results.add(String(inflated, Charsets.ISO_8859_1))
+                }
+            } catch (_: Exception) {
+                // Not a FlateDecode stream (image data etc.) — skip
+            }
+        }
+        return results
     }
 
     private fun unescapePdfString(raw: String): String = buildString {

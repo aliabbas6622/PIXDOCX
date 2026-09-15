@@ -68,4 +68,7 @@ interface OfficeDocumentDao {
 
     @Query("SELECT COUNT(*) FROM office_documents")
     suspend fun getDocumentCount(): Int
+
+    @Query("SELECT COUNT(*) FROM office_documents WHERE title = :title AND sizeLabel = :sizeLabel")
+    suspend fun countByTitleAndSize(title: String, sizeLabel: String): Int
 }

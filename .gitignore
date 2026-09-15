@@ -25,6 +25,11 @@ target/
 .vscode/
 .idea/
 
+# Android machine-specific files
+local.properties
+captures/
+*.apk.idsig
+
 # OS generated files
 .DS_Store
 Thumbs.db

@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -31,6 +32,7 @@ import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Slideshow
 import androidx.compose.material.icons.filled.Sort
 import androidx.compose.material.icons.filled.TableChart
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -107,21 +109,29 @@ fun HomeScreen(
     var docToExport by remember { mutableStateOf<OfficeDocument?>(null) }
     var sortMenuExpanded by remember { mutableStateOf(false) }
 
-    // SAF picker: accepts md, txt, csv, tsv, pdf, docx, xlsx, pptx and more
+    var importingCount by remember { mutableStateOf(0) }
+
+    // SAF picker: accepts md, txt, csv, tsv, pdf, docx, xlsx, pptx and more.
+    // OpenMultipleDocuments lets the user select several files at once.
     val filePicker = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.OpenDocument()
-    ) { uri ->
-        uri?.let {
-            // Take a persistable grant so the file can be re-read later
-            try {
-                context.contentResolver.takePersistableUriPermission(
-                    it,
-                    android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION
-                )
-            } catch (_: SecurityException) {
-                // Provider may not offer persistable grants; import still works now
+        contract = ActivityResultContracts.OpenMultipleDocuments()
+    ) { uris ->
+        if (uris.isNotEmpty()) {
+            importingCount = uris.size
+            uris.forEach { uri ->
+                // Take a persistable grant so the file can be re-read later
+                try {
+                    context.contentResolver.takePersistableUriPermission(
+                        uri,
+                        android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION
+                    )
+                } catch (_: SecurityException) {
+                    // Provider may not offer persistable grants; import still works now
+                }
+                viewModel.importFile(uri) {
+                    importingCount = (importingCount - 1).coerceAtLeast(0)
+                }
             }
-            viewModel.importFile(it)
         }
     }
 
@@ -197,7 +207,7 @@ fun HomeScreen(
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             // Open File From Device
                             IconButton(
-                                onClick = { filePicker.launch(arrayOf("*/*")) },
+                                onClick = { filePicker.launch(arrayOf("*/*")) }, // all mime types — files load by extension
                                 modifier = Modifier.testTag("open_file_btn")
                             ) {
                                 Icon(
@@ -311,6 +321,26 @@ fun HomeScreen(
                 modifier = Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(bottom = 80.dp)
             ) {
+                // BATCH IMPORT PROGRESS
+                if (importingCount > 0) {
+                    item {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 6.dp)
+                        ) {
+                            CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "Importing $importingCount file${if (importingCount == 1) "" else "s"}...",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+
                 // CATEGORY FILTER TABS
                 item {
                     val chipColors = FilterChipDefaults.filterChipColors(

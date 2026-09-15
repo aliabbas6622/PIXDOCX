@@ -39,26 +39,53 @@ formatting. PDF is best-effort text. There is no proper read-only viewer.
       (read-only) with Edit toggle → WordEditorScreen, XLS → grid, PPT → slides
 - [x] Room migration 2→3 adds `localFilePath` column (non-destructive)
 
-## 2. Open-with integration (P1)
+## 2. File type converters / export (P1, **done 2026-09-15, on-device share test pending**)
+
+### 2.0 Import fixes — "not loading all files from the device" (P0, done 2026-09-15)
+- [x] **PDF FlateDecode**: real-world PDFs store content streams zlib-compressed;
+      FileImporter now inflates every `stream...endstream` block (zlib) and re-scans it
+      for Tj/TJ text. Uncompressed streams still handled; scanned-image PDFs fall back
+      to the notice + native PdfViewer (original always preserved)
+- [x] **Multi-select import**: picker switched to OpenMultipleDocuments; batch imports
+      run in parallel with a live "Importing N files..." progress row on Home
+- [x] **Duplicate skip**: files with same title + size are not imported twice
+      (new DAO query countByTitleAndSize)
+- [x] **Zip cap raised**: 8 MB → 24 MB per OOXML entry (big DOCX/XLSX no longer dropped)
+- [x] `FileImporterPdfTest` — 4 Robolectric tests incl. a generated Flate-compressed PDF
+- [ ] On device: pick several PDFs/DOCX/XLSX from Download and confirm all open;
+      note that scanned (image-only) PDFs intentionally show the fallback notice
+- [x] `FileConverter.kt` — dependency-free converters from the internal DOC/XLS/PPT/PDF model:
+      Markdown (pipe tables for sheets, numbered sections for slides), plain text,
+      CSV (formula-evaluated, quoted), styled HTML, and real paginated PDF via
+      `android.graphics.pdf.PdfDocument` (A4, title + body paints, footer, page numbers)
+- [x] `ExportDocumentDialog` upgraded: format chips per document type, live conversion
+      preview, "Copy Text" copies the converted output, Share writes
+      `files/exports/<ts>_<title>.<ext>` and sends it via `ACTION_SEND` + FileProvider
+- [x] FileProvider registered in the manifest (`@xml/file_paths`: exports/ + imports/)
+- [x] `FileConverterTest` — 12 Robolectric tests (md/txt/csv/html round trips, PDF line
+      layout, file write). Byte-level PDF output verified on-device, since Robolectric's
+      PdfDocument shadow cannot run the native PDF writer on the JVM
+
+## 3. Open-with integration (P1)
 - [ ] Add intent-filter so "Open with PixDocx" appears in system file manager
       (md, txt, csv, pdf, docx, xlsx, pptx mime types)
 - [ ] Handle ACTION_VIEW in MainActivity: import the uri then open the viewer
 - [ ] Unit tests for FileImporter (md/csv/docx/xlsx/pptx fixtures) — started earlier, not committed
 
-## 3. UI polish backlog (from user feedback round 1)
+## 4. UI polish backlog (from user feedback round 1)
 - [x] Rebrand header to "PixDocx" (commit 152596a)
 - [x] Header rounded bottom corners (20dp)
 - [x] Reduce excessive bold text app-wide (Type.kt retuned)
 - [x] Text overflow protection (`maxLines`/`ellipsis`) on cards, cells, slide titles
 - [x] Faster animations (300ms → ~120ms)
 
-## 4. Testing on device (Pixel 7a)
+## 5. Testing on device (Pixel 7a)
 - [x] Build compiles, APK installs, app launches with no fatal exceptions
 - [ ] Import test files pushed to /sdcard/Download: sample.pdf, notes.md, inventory.csv
       (blocked: phone was locked during test session — resume when unlocked)
 - [ ] Confirm no regression: formulas still evaluate, auto-save, migrations 1→2→3 intact
 
-## 5. Ideas / later (P2)
+## 6. Ideas / later (P2)
 - [ ] Search inside PDF viewer
 - [ ] Dark/light theme toggle in header
 - [ ] Export to PDF (PdfDocument API)

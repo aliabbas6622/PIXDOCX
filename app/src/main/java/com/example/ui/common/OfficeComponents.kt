@@ -63,15 +63,21 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.ClipboardManager
 import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import android.content.Intent
+import android.widget.Toast
+import androidx.core.content.FileProvider
 import androidx.compose.ui.window.Dialog
 import com.example.data.model.DocumentType
 import com.example.data.model.OfficeDocument
+import com.example.util.FileConverter
+import java.io.File
 import com.example.ui.theme.DocBlue
 import com.example.ui.theme.DocBlueLight
 import com.example.ui.theme.PdfPurple
@@ -370,8 +376,40 @@ fun ExportDocumentDialog(
     document: OfficeDocument,
     onDismiss: () -> Unit
 ) {
+    val context = LocalContext.current
     val clipboardManager: ClipboardManager = LocalClipboardManager.current
+    val supportedFormats = remember(document.type) { FileConverter.supportedFormats(document.type) }
+    var selectedFormat by remember { mutableStateOf(FileConverter.defaultFormat(document.type)) }
     var copiedNotice by remember { mutableStateOf(false) }
+    var exportedFile by remember { mutableStateOf<File?>(null) }
+
+    // Convert once per selected format (PDF conversion is not free)
+    val previewText = remember(document.id, selectedFormat) {
+        if (selectedFormat == FileConverter.ExportFormat.PDF) {
+            "PDF file will be generated when you tap Share.\n\n" +
+                FileConverter.toPlainText(document).take(1200)
+        } else {
+            String(FileConverter.convertToBytes(document, selectedFormat), Charsets.UTF_8)
+        }
+    }
+
+    fun share() {
+        try {
+            val file = FileConverter.convertToFile(context, document, selectedFormat)
+            exportedFile = file
+            val shareName = FileConverter.shareFileName(document, selectedFormat)
+            val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
+            val intent = Intent(Intent.ACTION_SEND).apply {
+                type = selectedFormat.mimeType
+                putExtra(Intent.EXTRA_STREAM, uri)
+                putExtra(Intent.EXTRA_SUBJECT, document.title)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            context.startActivity(Intent.createChooser(intent, "Export as ${selectedFormat.label}"))
+        } catch (e: Exception) {
+            Toast.makeText(context, "Export failed: ${e.message}", Toast.LENGTH_LONG).show()
+        }
+    }
 
     Dialog(onDismissRequest = onDismiss) {
         Surface(
@@ -404,10 +442,40 @@ fun ExportDocumentDialog(
                     }
                 }
 
-                Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.height(12.dp))
+
+                // Format picker
+                Text(
+                    text = "Format:",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Spacer(modifier = Modifier.height(6.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    supportedFormats.forEach { format ->
+                        val selected = format == selectedFormat
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = if (selected) DocBlue else MaterialTheme.colorScheme.surfaceVariant,
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(8.dp))
+                                .clickable { selectedFormat = format }
+                                .testTag("export_format_${format.extension}")
+                        ) {
+                            Text(
+                                text = format.label,
+                                color = if (selected) Color.White else MaterialTheme.colorScheme.onSurfaceVariant,
+                                style = MaterialTheme.typography.labelLarge,
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
+                            )
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
 
                 Text(
-                    text = "Content Preview / Plain Text:",
+                    text = "Preview (as ${selectedFormat.label}):",
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSurface
                 )
@@ -424,7 +492,7 @@ fun ExportDocumentDialog(
                         .verticalScroll(rememberScrollState())
                 ) {
                     Text(
-                        text = document.content.take(1500),
+                        text = previewText.take(1500),
                         style = MaterialTheme.typography.bodySmall,
                         fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace
                     )
@@ -442,6 +510,18 @@ fun ExportDocumentDialog(
                         modifier = Modifier.padding(top = 8.dp)
                     )
                 }
+                AnimatedVisibility(
+                    visible = exportedFile != null,
+                    enter = fadeIn(animationSpec = tween(120)),
+                    exit = fadeOut(animationSpec = tween(100))
+                ) {
+                    Text(
+                        text = "✓ Exported ${selectedFormat.extension.uppercase()} — ready to share",
+                        color = Color.White,
+                        style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.padding(top = 8.dp)
+                    )
+                }
 
                 Spacer(modifier = Modifier.height(18.dp))
 
@@ -451,7 +531,7 @@ fun ExportDocumentDialog(
                 ) {
                     OutlinedButton(
                         onClick = {
-                            clipboardManager.setText(AnnotatedString(document.content))
+                            clipboardManager.setText(AnnotatedString(previewText))
                             copiedNotice = true
                         },
                         modifier = Modifier.weight(1f).testTag("copy_clipboard_btn")
@@ -462,10 +542,7 @@ fun ExportDocumentDialog(
                     }
 
                     Button(
-                        onClick = {
-                            clipboardManager.setText(AnnotatedString(document.content))
-                            copiedNotice = true
-                        },
+                        onClick = { share() },
                         colors = ButtonDefaults.buttonColors(
                             containerColor = MaterialTheme.colorScheme.surfaceVariant,
                             contentColor = Color.White

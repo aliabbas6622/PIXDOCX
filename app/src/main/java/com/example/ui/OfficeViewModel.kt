@@ -322,29 +322,39 @@ class OfficeViewModel(application: Application) : AndroidViewModel(application) 
     /**
      * Imports a real file (md, txt, csv, docx, xlsx, pptx, pdf...) from the
      * device into PixDocx. Runs on IO; the heavy parsing never touches Main.
+     * [onDone] fires after this file finished (imported or skipped) so callers
+     * can track multi-file batch progress.
      */
-    fun importFile(uri: Uri) {
+    fun importFile(uri: Uri, onDone: () -> Unit = {}) {
         viewModelScope.launch {
-            val result = withContext(Dispatchers.IO) {
-                FileImporter.import(getApplication(), uri)
+            try {
+                val result = withContext(Dispatchers.IO) {
+                    FileImporter.import(getApplication(), uri)
+                }
+                // Skip if a file with the same title and size was already imported
+                val existing = repository.countByTitleAndSize(result.title, result.sizeLabel)
+                if (existing > 0) return@launch
+
+                val doc = OfficeDocument(
+                    title = result.title,
+                    type = result.type,
+                    content = result.content,
+                    category = when (result.type) {
+                        DocumentType.DOC -> "Docs"
+                        DocumentType.XLS -> "Sheets"
+                        DocumentType.PPT -> "Slides"
+                        DocumentType.PDF -> "PDF"
+                    },
+                    wordCount = if (result.type == DocumentType.DOC) countWords(result.content) else 0,
+                    sheetRows = if (result.type == DocumentType.XLS) 20 else 0,
+                    sizeLabel = result.sizeLabel,
+                    localFilePath = result.savedFilePath
+                )
+                val newId = repository.insert(doc)
+                repository.getDocumentByIdDirect(newId)?.let { openDocument(it) }
+            } finally {
+                onDone()
             }
-            val doc = OfficeDocument(
-                title = result.title,
-                type = result.type,
-                content = result.content,
-                category = when (result.type) {
-                    DocumentType.DOC -> "Docs"
-                    DocumentType.XLS -> "Sheets"
-                    DocumentType.PPT -> "Slides"
-                    DocumentType.PDF -> "PDF"
-                },
-                wordCount = if (result.type == DocumentType.DOC) countWords(result.content) else 0,
-                sheetRows = if (result.type == DocumentType.XLS) 20 else 0,
-                sizeLabel = result.sizeLabel,
-                localFilePath = result.savedFilePath
-            )
-            val newId = repository.insert(doc)
-            repository.getDocumentByIdDirect(newId)?.let { openDocument(it) }
         }
     }
 

@@ -23,6 +23,9 @@ class OfficeRepository(private val dao: OfficeDocumentDao) {
     suspend fun getDocumentByIdDirect(id: Long): OfficeDocument? =
         dao.getDocumentByIdDirect(id)
 
+    suspend fun countByTitleAndSize(title: String, sizeLabel: String): Int =
+        dao.countByTitleAndSize(title, sizeLabel)
+
     suspend fun insert(document: OfficeDocument): Long =
         dao.insertDocument(document)
 
