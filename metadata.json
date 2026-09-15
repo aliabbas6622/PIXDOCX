@@ -1,0 +1,6 @@
+{
+  "name": "WPS Office",
+  "description": "High-performance native office suite for documents, spreadsheets, and presentations with smooth offline editing.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
